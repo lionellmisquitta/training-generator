@@ -12,6 +12,12 @@ Build genuinely teachable courses, not outlines or decorative pages. Work module
 6. Validate merged courses (module parts are inputs to merge, not standalone root courses). For large courses use `python scripts/merge_course.py index.json module1.json module2.json > course.json`, then run `python scripts/build_course.py course.json output.html`. The offline player shows the full index including disabled planned lessons, visual scene cues, browser speech, a resources pane and shuffled Practice Time questions.
 7. Test the HTML in a browser if a browser harness is available. Otherwise report **static validation only — not browser-tested**. Deliver HTML, editable JSON, and a concise disclosure of unimplemented media and missing lessons.
 
+## Mandatory adversarial pre-completion review
+
+Before treating any lesson as complete, perform a deliberate adversarial self-verification pass, including in chat. Follow references/adversarial-review.md: challenge topic coverage, syllabus alignment, prerequisites, solved mathematics, assessment answer keys, executable code, age-appropriate teaching visuals, originality against prior lessons, citations and offline player behavior. Run applicable tests, repair defects, and repeat up to three times. Persist evidence tied to module SHA. Never claim tests not executed.
+
+Chat may produce a SELF-VERIFIED DRAFT after passing these checks but cannot claim independent review. Do not pretend to invoke Claude or bypass the independent-review checkpoint. In Codex/VS Code, when separately installed and authenticated, invoke Claude Code as independent reviewer of the frozen artifact SHA. Otherwise leave review pending. The approved state still requires its separate approval gate.
+
 ## Shared Chat, Codex, and Claude Code orchestration
 
 Read `references/orchestration.md` for identical host-neutral commands and state transitions. Functional users can author, resume and review through chat without knowing Codex; a CLI user can run the same skill. Use `scripts/checkpoint.py` whenever a local execution environment is available. Each module needs deterministic validation, an independently supplied review PASS tied to its SHA-256 (reviewer identity is metadata, not cryptographic proof), and separate explicit human approval before advancing. Without reviewer access, export a review handoff and leave the checkpoint `review_pending`. Do not invent cross-session persistence or claim automatic Claude Code calls from chat.
