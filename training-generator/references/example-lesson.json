@@ -1,0 +1,197 @@
+{
+  "title": "AI Engineering — Graduate Specimen",
+  "audience": "Experienced enterprise software architect seeking master’s-level AI engineering",
+  "description": "Research-grounded specimen lesson; one developed lesson, not a completed master’s course.",
+  "status": "draft",
+  "learner_age_band": "adult",
+  "modules": [
+    {
+      "title": "Model Internals",
+      "lessons": [
+        {
+          "title": "Transformers and Attention: From Matrices to Systems",
+          "objectives": [
+            "Derive scaled dot-product self-attention from a shape-consistent Q/K/V projection",
+            "Compute a two-token example by hand and reproduce it with NumPy",
+            "Explain causal masks, multi-head projections and attention memory scaling",
+            "Identify when FlashAttention improves memory traffic without changing the attention function"
+          ],
+          "hook": "Imagine implementing a language model that has to decide whether the word bank in a financial report means a financial institution or the edge of a river. The surrounding tokens change the interpretation. A Transformer learns to weigh contextual evidence through attention, but the mechanism comes with matrix-shape constraints, numerical stability questions, masking rules and hardware costs. We will derive the mathematics rather than memorize a diagram.",
+          "explanation": [
+            "A sequence model is asked to predict a token from all the evidence it is permitted to observe. In a causal language model, a token at position t may only use positions up to t. A Transformer computes contextual representations by mixing information across positions using attention. The essential conceptual move is separating three roles for each token: what am I looking for (query), what information do I advertise (key), and what content could I contribute (value). These are learned projections, not three separate words or three databases. The projections are computed by multiplying a matrix of token representations by learned weight matrices. In general a layer contains attention followed by feed-forward transformations, and multiple residual connections and normalization operations keep the computation trainable. We will focus on one attention head because its shape rules are the foundation of everything else.",
+            "Suppose X has shape [sequence length n, model width d_model]. Learn W_Q and W_K with shape [d_model,d_k], and W_V with shape [d_model,d_v]. Then Q=XW_Q, K=XW_K, V=XW_V. Their respective shapes are [n,d_k], [n,d_k] and [n,d_v]. The compatibility score matrix S=QK transpose has shape [n,n], because every query is compared with every key. For row i, S[i,j] measures compatibility between the query at i and the key at j. Softmax across j converts those scores into nonnegative weights summing to one. Multiply the weights by V to obtain one weighted average of value vectors for each position. Nothing in this computation inherently knows whether a position is in the future; a causal mask must be added to prevent information leakage during autoregressive training.",
+            "The scaling denominator square root of d_k is not decoration. If query and key components are independent with zero mean and unit variance, the dot product of d_k paired components has variance approximately d_k. Without scaling, typical score magnitudes grow with width. Large logits push softmax toward saturation, leaving small gradients for many alternatives. Dividing by square root of d_k brings the variance back toward one under those simplifying assumptions. Real trained representations are neither independent nor identically distributed; this reasoning explains the design motivation, not a guarantee about every trained model. A numerically stable implementation subtracts the row maximum before exponentiating, especially when floating point ranges are limited.",
+            "Causal masking is an access-control rule inside the attention computation, not an afterthought. Put a sufficiently negative number into scores above the main diagonal before softmax, so the current position cannot assign weight to future tokens. This matters in teacher-forced training, where the complete sequence is physically present in memory; without the mask a model could cheat by attending to information that would not exist during generation. Padding masks solve a different problem: they prevent attention to artificial sequence fillers. Cross-attention also differs from self-attention: queries can come from one stream while keys and values originate in another. A useful engineering habit is to write down tensor shapes and the information-access policy before running a model.",
+            "Multi-head attention repeats the mechanism in learned subspaces. Multiple heads can emphasize distinct patterns, although it is incorrect to assume each head has a stable human-readable linguistic role. Their outputs are concatenated and projected back to model width. The attention score matrix per head is still n by n, so the straightforward implementation has quadratic score-storage growth in sequence length. Attention compute also grows with sequence length, although the exact complexity depends on widths and implementation details. At inference with key-value caching, previously generated keys and values can be reused, changing the computation performed per newly generated token but also consuming memory proportional to cached context length.",
+            "Finally distinguish mathematics from systems optimization. FlashAttention does not replace softmax attention with a different learned approximation. It reorganizes computation into tiles, combines operations and reduces high-bandwidth-memory traffic using a running stable softmax calculation. This is why simply counting arithmetic operations does not predict speed: GPU kernels are constrained by memory movement, parallelism and hardware-specific behavior. The original Transformer paper is primary evidence for the architecture; Stanford CS336 supplies a modern implementation-heavy teaching pathway; the FlashAttention paper discusses IO-aware exact attention. Neither source automatically establishes that a particular kernel will be faster on your model and hardware: benchmark shapes, precisions and actual devices.",
+            {
+              "type": "code",
+              "text": "import numpy as np\n\ndef attention(x, wq, wk, wv, causal=True):\n    q, k, v = x @ wq, x @ wk, x @ wv\n    logits = q @ k.T / np.sqrt(q.shape[-1])\n    if causal:\n        logits = np.where(np.triu(np.ones_like(logits, dtype=bool), 1), -np.inf, logits)\n    logits = logits - np.max(logits, axis=-1, keepdims=True)\n    weights = np.exp(logits)\n    weights /= weights.sum(axis=-1, keepdims=True)\n    return weights @ v, weights\n\nx = np.array([[1., 0.], [0., 1.]])\neye = np.eye(2)\ny, a = attention(x, eye, eye, eye)\nprint(a)\nassert np.allclose(a.sum(axis=-1), 1)\nassert a[0, 1] == 0"
+            }
+          ],
+          "examples": [
+            {
+              "title": "Calculate a causal attention row by hand",
+              "walkthrough": [
+                "Begin with two tokens represented by x1 = [1, 0] and x2 = [0, 1]. Let each learned projection temporarily be the identity matrix, so Q, K and V all equal X. This simplification is deliberately artificial; its purpose is to isolate attention mechanics. For query one, dot products with keys one and two are 1 and 0 respectively. The head width is two, so divide by square root of two. The unmasked logits are therefore approximately [0.7071, 0].",
+                "Next impose a causal mask. Position one must not see position two, so its second logit becomes negative infinity. Softmax over [0.7071, negative infinity] is [1, 0]; the weighted value is exactly [1, 0]. For query two, both positions are visible. Its logits are [0, 0.7071]. Exponentiate these and divide by their sum: the weight on the second token is roughly 0.670, the weight on the first roughly 0.330. The output is a mixture of the two value vectors, not a copied token. Check both rows sum to one.",
+                {
+                  "type": "code",
+                  "text": "import numpy as np\nfrom math import sqrt, exp\np2 = exp(1/sqrt(2)) / (1 + exp(1/sqrt(2)))\nprint(round(1-p2, 3), round(p2, 3))\nassert 0.66 < p2 < 0.68"
+                }
+              ]
+            },
+            {
+              "title": "Diagnose a missing causal mask",
+              "walkthrough": [
+                "Imagine a decoder trained to predict the next token. During training the entire target sentence is available in one tensor. An engineer correctly shifts the target labels but forgets the causal mask. At position two, the model can attend to a position containing a future token. Training loss becomes impressively low because the network exploits information leakage. Yet deployment generates tokens sequentially, so future tokens are absent and accuracy collapses. The diagnosis is not “the model overfit” until we check whether training and inference had identical information boundaries.",
+                "Write a minimal test using a four-position score matrix, then apply a strict upper-triangular mask. Verify every entry above the diagonal of the resulting attention matrix is exactly zero, and verify each row sums to one. Change a future token while keeping earlier positions fixed. In a properly causal layer, an earlier output should not change. This is a stronger test than merely inspecting whether model loss decreases, because it checks the required invariant directly.",
+                {
+                  "type": "code",
+                  "text": "import numpy as np\nmask = np.triu(np.ones((4,4), dtype=bool), k=1)\nassert mask[0,3] and not mask[3,0]\nprint(mask.astype(int))"
+                }
+              ]
+            }
+          ],
+          "scenes": [
+            {
+              "title": "Project token representations",
+              "narration": "Each input token is projected into queries, keys and values by learned matrices. These projections determine the comparisons and the content to aggregate.",
+              "visual": {
+                "type": "flow",
+                "items": [
+                  "X tokens",
+                  "Q = X WQ",
+                  "K = X WK",
+                  "V = X WV"
+                ]
+              }
+            },
+            {
+              "title": "Score, scale and mask",
+              "narration": "Compute the score matrix with query times key transpose, divide by square root head width, and apply the causal mask before softmax.",
+              "visual": {
+                "type": "equation",
+                "text": "softmax(mask(Q Kᵀ / √dₖ)) V"
+              }
+            },
+            {
+              "title": "Weighted aggregation",
+              "narration": "Every visible query position receives a weighted mixture of value vectors. The weights within each softmax row sum to one.",
+              "visual": {
+                "type": "tokens",
+                "items": [
+                  "query 2",
+                  "value 1 × 0.33",
+                  "value 2 × 0.67",
+                  "mixed output"
+                ]
+              }
+            },
+            {
+              "title": "Memory scaling trade-off",
+              "narration": "The straightforward full attention score matrix has quadratic storage in sequence length. Memory-aware kernels avoid materializing that full matrix.",
+              "visual": {
+                "type": "bars",
+                "items": [
+                  {
+                    "label": "n=8",
+                    "value": 64
+                  },
+                  {
+                    "label": "n=16",
+                    "value": 256
+                  },
+                  {
+                    "label": "n=32",
+                    "value": 1024
+                  }
+                ]
+              }
+            }
+          ],
+          "lab": {
+            "title": "Implement attention and prove causal isolation",
+            "instructions": "Implement NumPy scaled dot-product attention from the derivation, then run it for randomly initialized X with sequence length four and head width eight. Write assertions that attention rows sum to one, future-position weights vanish, and outputs have the expected shape. Finally perturb the final input token and verify the first output is unchanged when causal masking is enabled but may change without masking. Report the seed, tensor shapes, expected invariants and your observed results.",
+            "success": "Verify invariants through assertions, document the tensor shapes, and compare masked versus unmasked behavior. Do not accept a plausible-looking matrix alone as proof."
+          },
+          "pitfalls": [
+            "Dividing by d_k instead of its square root alters the logits and gradient behavior.",
+            "Applying the causal mask after softmax does not produce normalized allowed weights.",
+            "Confusing n by n score memory with key-value cache memory leads to incorrect capacity planning."
+          ],
+          "questions": [
+            {
+              "prompt": "For Q with shape [5, 8] and K with shape [7, 8], what shape does QK transpose have?",
+              "choices": [
+                "[5, 7]",
+                "[8, 8]",
+                "[7, 5]",
+                "[5, 8]"
+              ],
+              "answer": 0,
+              "reason": "The common feature width contracts in a matrix product, leaving query positions by key positions."
+            },
+            {
+              "prompt": "What property must a causal self-attention layer satisfy?",
+              "choices": [
+                "All attention weights have equal magnitude.",
+                "All positions can access the following token positions.",
+                "Earlier outputs do not depend on later input tokens.",
+                "Every position attends to the full input sequence."
+              ],
+              "answer": 2,
+              "reason": "Causality constrains information flow; future-token changes must not influence an earlier output."
+            },
+            {
+              "prompt": "Why divide attention logits by square root of key width?",
+              "choices": [
+                "It makes every key and query a one-dimensional scalar.",
+                "It moderates typical dot-product magnitude as width grows.",
+                "It prevents all numerical floating-point error.",
+                "It reduces the model width to simplify every projection."
+              ],
+              "answer": 1,
+              "reason": "For independent unit-variance components, unscaled dot-product variance grows with the number of terms."
+            },
+            {
+              "prompt": "What is the central systems idea of FlashAttention?",
+              "choices": [
+                "Replacing keys with learned scalar coefficients.",
+                "Discarding the softmax normalizer for speed.",
+                "Requiring a sparse learned attention pattern.",
+                "Tiling exact attention to reduce memory traffic."
+              ],
+              "answer": 3,
+              "reason": "The kernel reorganizes work and stable softmax updates to avoid costly intermediate memory movement."
+            }
+          ],
+          "resources": [
+            {
+              "title": "Stanford CS336 (2026) — language modeling from scratch",
+              "url": "https://cs336.stanford.edu/"
+            },
+            {
+              "title": "Stanford CS224N (2026) — NLP with deep learning",
+              "url": "https://web.stanford.edu/class/cs224n/"
+            },
+            {
+              "title": "Attention Is All You Need (2017)",
+              "url": "https://arxiv.org/abs/1706.03762"
+            },
+            {
+              "title": "FlashAttention: Fast and Memory-Efficient Exact Attention (2022)",
+              "url": "https://arxiv.org/abs/2205.14135"
+            }
+          ],
+          "challenge": "Construct an attention test harness that uses explicit seeds and compares an unmasked baseline to a causal implementation. Explain which invariants matter for correctness, which hardware claims require benchmarking, and why a low training loss cannot prove future-token isolation. Extend the exercise to a batch dimension and document every broadcast you introduce.",
+          "evidence_note": "Original tutorial and calculations synthesized from the cited Stanford course overviews and primary papers. Source links were checked for course scope, not every lecture claim. Numerical example and code are original and require learner execution; browser narration is system TTS, not neural voice."
+        },
+        {
+          "title": "GPU kernels and FlashAttention benchmarking",
+          "status": "planned"
+        }
+      ]
+    }
+  ]
+}
