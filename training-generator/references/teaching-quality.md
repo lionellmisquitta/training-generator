@@ -1,0 +1,21 @@
+# Teaching quality standards
+
+Minimum validator floor is **300 prose words for adult lessons**, not the teaching target. Aim for **600–900+ substantive prose words** for a full adult lesson; complex graduate material often needs 1,500–3,000+ words, explicit derivations, code, and extended labs. Do not pad to reach a quota. A lesson within 50 words of the floor is probably an outline. Allocate depth by concept complexity and existing learner expertise. Code does not count as explanatory prose.
+
+For graduate technical lessons, teach intuition -> formalism -> worked derivation -> executable implementation -> failure modes -> trade-offs -> test. At least two worked examples with >=80 words of step-by-step *explanatory prose* each, plus code or equations where relevant. Examples are not anecdotes. Walkthrough accepts a string, `{type:"text"|"code",text:"..."}`, or a list of such steps. Code is exempt from prose diversity heuristics and must be actual runnable code or explicitly pseudocode. Explain assumptions, shapes, units and limitations.
+
+Write three or more challenging MCQs with plausible, roughly equal-length distractors and varied correct answer positions 0–3. Numerical exercises should change values compared with worked examples. Rationales explain why an approach works, without giving away the answer during retry. Avoid revealing lab expected outputs before the learner attempts the work; phrase success as observable self-checks or add a separate reveal in future.
+
+Prefer module/lecture-specific university publications, primary research papers, verified technical documentation and original experiments. Use `references/university-sources.md` for starting points. Link to specific materials rather than reusing a generic resource set across unrelated lessons. Research each claim and distinguish sourced facts from generated explanations or hypotheses. No article body scraping/copying into delivered lessons without appropriate rights.
+
+For ages 6–8, adapt vocabulary, examples, manipulatives and repetition; validated minimum 150 words. The current player supports four-choice questions only.
+
+Validator PASS means minimum structural acceptability, not educational quality. Inspect its depth/warning summary and revise weak material before packaging. Do not claim any browser, source availability, math correctness, neural narration or instructional effectiveness test you did not run.
+
+
+## Non-negotiable topic ownership and anti-factory rule (v0.5)
+- **Write each lesson individually. Never create completed lessons by slot filling, template substitution, or looping over topic names.** Reused instructional prose, code, scene sequences, lab instructions, pitfalls, or question wording across distinct lessons is a content-integrity failure. Reuse the Player shell, not the teaching material.
+- **Teach the named skill itself.** An addition-with-regrouping lesson must visibly regroup ten ones as one ten and work each column. A quarter-to lesson must use an actual clock face with the minute hand at 9, hour hand approaching the next hour, and 45 minutes past the current hour. For advanced courses, Cournot requires inverse demand and reaction functions; Shapley requires marginal contributions and coalition orderings. Topic labels are never proof of topic coverage.
+- **For 6–8-year-olds**, use age-appropriate everyday language and concrete quantities. Do not use words such as "nonnegative", "mathematical model", "inverse" or "represents" in narrated teaching unless explicitly taught with an age-appropriate explanation. The lesson lab must use a topic-specific object: a clock for time, coins for money, a ruler for length, place-value blocks for regrouping. Generic counters for every subject are prohibited.
+- Every question must assess the lesson mathematics, not generic study habits. A shuffle of choices is not a new question. Include clear intermediate steps, a topic-specific visual and an opportunity to apply the concept with different numbers.
+- For any full-year request, output a truthful *planned* index plus one **fully authored** module (at most three lessons) per generation pass. Do not manufacture dozens of filled lesson objects to claim a complete course. Run cross-lesson validation after each merge. A passing validator is necessary, never sufficient, for publishing to children.
