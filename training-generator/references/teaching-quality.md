@@ -13,7 +13,7 @@ For ages 6–8, adapt vocabulary, examples, manipulatives and repetition; valida
 Validator PASS means minimum structural acceptability, not educational quality. Inspect its depth/warning summary and revise weak material before packaging. Do not claim any browser, source availability, math correctness, neural narration or instructional effectiveness test you did not run.
 
 
-## Non-negotiable topic ownership and anti-factory rule (v0.5)
+## Non-negotiable topic ownership and anti-factory rule (v0.6)
 - **Write each lesson individually. Never create completed lessons by slot filling, template substitution, or looping over topic names.** Reused instructional prose, code, scene sequences, lab instructions, pitfalls, or question wording across distinct lessons is a content-integrity failure. Reuse the Player shell, not the teaching material.
 - **Teach the named skill itself.** An addition-with-regrouping lesson must visibly regroup ten ones as one ten and work each column. A quarter-to lesson must use an actual clock face with the minute hand at 9, hour hand approaching the next hour, and 45 minutes past the current hour. For advanced courses, Cournot requires inverse demand and reaction functions; Shapley requires marginal contributions and coalition orderings. Topic labels are never proof of topic coverage.
 - **For 6–8-year-olds**, use age-appropriate everyday language and concrete quantities. Do not use words such as "nonnegative", "mathematical model", "inverse" or "represents" in narrated teaching unless explicitly taught with an age-appropriate explanation. The lesson lab must use a topic-specific object: a clock for time, coins for money, a ruler for length, place-value blocks for regrouping. Generic counters for every subject are prohibited.
