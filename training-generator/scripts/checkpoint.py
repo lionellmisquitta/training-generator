@@ -16,6 +16,9 @@ def save(p, obj):
     finally:
         if os.path.exists(tmp):os.unlink(tmp)
 
+def normalize_title(s):
+    return " ".join(str(s).casefold().split())
+
 def run(a):
     root=pathlib.Path(a.course).resolve(); statepath=root/"CONTINUE_HERE.json"
     if a.action=="init":
@@ -24,7 +27,7 @@ def run(a):
         if not idx.get("modules"):raise ValueError("Missing modules")
         save(root/"index.json",idx)
         save(statepath,{"version":1,"course_title":idx.get("title"),"publication_approved":False,
-            "modules":[{"id":f"m{i+1:02d}","title":m["title"],"status":"planned","artifact":None,"sha256":None,"review":None} for i,m in enumerate(idx["modules"])]})
+            "modules":[{"id":f"m{i+1:02d}","title":m["title"],"status":"planned","artifact":None,"sha256":None,"review":None,"author":None} for i,m in enumerate(idx["modules"])]})
     else:
         if not statepath.exists():raise ValueError("No checkpoint: run init")
         s=json.loads(statepath.read_text());m=next((m for m in s["modules"] if m["status"]!="approved"),None)
@@ -35,7 +38,11 @@ def run(a):
             idx=json.loads((root/"index.json").read_text())
             for mod in idx["modules"]:
                 old=next(k for k in s["modules"] if k["title"]==mod["title"])
-                if old["id"]==m["id"]:mod["lessons"]=data["lessons"]
+                if old["id"]==m["id"]:
+                    planned=[normalize_title(x["title"]) for x in mod["lessons"]]
+                    submitted=[normalize_title(x.get("title","")) for x in data["lessons"]]
+                    if planned!=submitted:raise ValueError("Submitted lesson titles differ from planned syllabus; explicit replan required")
+                    mod["lessons"]=data["lessons"]
                 elif old["status"]=="approved":
                     p=root/old["artifact"]
                     if sha(p)!=old["sha256"]:raise ValueError("Approved content hash changed")
@@ -47,12 +54,12 @@ def run(a):
             finally:tmp.unlink(missing_ok=True)
             if result.returncode:raise ValueError("Validation failed: "+(result.stdout+result.stderr)[-1500:])
             dest=root/"modules"/(m["id"]+".json");save(dest,data)
-            m.update(status="review_pending",artifact=str(dest.relative_to(root)),sha256=sha(dest),review=None)
+            m.update(status="review_pending",artifact=str(dest.relative_to(root)),sha256=sha(dest),review=None,author=a.author or "unspecified")
         elif a.action=="review":
             if not m or m["status"]!="review_pending":raise ValueError("No module awaiting review")
             review=json.loads(pathlib.Path(a.report).read_text())
             if review.get("module_sha256")!=m["sha256"]:raise ValueError("Review is not for this module hash")
-            if review.get("verdict") not in ("pass","fail") or not review.get("reviewer") or review["reviewer"] in ("author","self"):raise ValueError("Independent review metadata missing")
+            if review.get("verdict") not in ("pass","fail") or not review.get("reviewer") or review["reviewer"].casefold() in ("author","self") or (m.get("author") not in (None,"unspecified") and review["reviewer"].strip().casefold()==m["author"].strip().casefold()):raise ValueError("Independent review metadata invalid or author equals reviewer")
             dest=root/"reviews"/(m["id"]+".json");save(dest,review)
             m["review"]=str(dest.relative_to(root));m["status"]="review_passed" if review["verdict"]=="pass" else "needs_repair"
         elif a.action=="approve":
@@ -65,6 +72,6 @@ def run(a):
 
 if __name__=="__main__":
     p=argparse.ArgumentParser();p.add_argument("action",choices=["init","status","submit","review","approve"])
-    p.add_argument("--course",required=True);p.add_argument("--index");p.add_argument("--module");p.add_argument("--report");p.add_argument("--approver")
+    p.add_argument("--course",required=True);p.add_argument("--index");p.add_argument("--module");p.add_argument("--report");p.add_argument("--approver");p.add_argument("--author")
     try:run(p.parse_args())
     except (ValueError,OSError,json.JSONDecodeError) as e:print("ERROR:",e,file=sys.stderr);sys.exit(2)
