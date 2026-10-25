@@ -82,6 +82,9 @@ def validate(d):
             if not isinstance(lab,dict) or not good(lab.get('title')) or not good(lab.get('instructions'),30) or not good(lab.get('success'),5):issues.append(f'{p}: invalid lab')
             if isinstance(lab,dict):
                 lab_owner[" ".join(str(lab.get("instructions","")).casefold().split())].add(n)
+                lab_tokens=re.findall(r"\b[\w]+\b",str(lab.get("instructions","")).casefold())
+                for i in range(max(0,len(lab_tokens)-5)):
+                    ngram_owner[tuple(lab_tokens[i:i+6])].add(n)
                 for sentence in re.split(r'(?<=[.!?])\s+|\n+',str(lab.get("instructions",""))):
                     norm=' '.join(sentence.casefold().split())
                     if len(re.findall(r'\b[\w]+\b',norm))>=8:lab_sentence_owner[norm].add(n)
@@ -110,11 +113,13 @@ def validate(d):
         tokens=[]
         for part in paragraphs if isinstance(paragraphs,list) else []:
             if not codepart(part):tokens.extend(re.findall(r"\b[\w]+\b",textpart(part).casefold()))
+        if isinstance(l.get("lab"),dict):
+            tokens.extend(re.findall(r"\b[\w]+\b",str(l["lab"].get("instructions","")).casefold()))
         grams=set(tuple(tokens[i:i+6]) for i in range(max(0,len(tokens)-5)))
         if grams:
             shared=sum(bool(ngram_owner[g]-{n}) for g in grams)
             if shared/len(grams)>.20:
-                issues.append(f'lesson {n}: repeated explanatory word 6-grams across lessons ({shared}/{len(grams)} = {shared/len(grams):.0%}; max 20%)')
+                issues.append(f'lesson {n}: repeated explanation/lab word 6-grams across lessons ({shared}/{len(grams)} = {shared/len(grams):.0%}; max 20%)')
         # Duplicate questions within one lesson (option order does not make a new question).
         prompts=[' '.join(q.get('prompt','').casefold().split()) for q in l.get('questions',[]) if isinstance(q,dict)]
         if len(set(prompts))<len(prompts):issues.append(f'lesson {n}: repeated question prompt within lesson')
