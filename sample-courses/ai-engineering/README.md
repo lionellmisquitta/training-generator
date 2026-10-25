@@ -1,15 +1,15 @@
-# AI Engineering — sample generated course
+# AI Engineering — Interactive Sample Course
 
-**22 authored lessons, 11 modules**. A complete offline HTML player and editable course JSON are prepared for this folder but **are not yet committed**. Do not represent this directory as a complete sample until those files are present.
+**22 authored lessons · 11 modules · Offline HTML5 course player**
 
-## Planned contents
+## Open the actual course
 
-- `course.html` — offline HTML5 lesson player
-- `course.json` — complete editable 22-lesson draft
-- `index.json` and `CONTINUE_HERE.json` — syllabus and checkpoint state
-- `modules/` — 11 immutable authored module snapshots
-- `reviews/` and `self-reviews/` — evidence and approval states
+**[Download / open the interactive course player](course.html)**
 
-**Quality status:** self-verified draft; 10 modules previously received Claude's independent pass for their specific hashes. Module 5 was repaired after a failed independent review and requires a new review. Assessment-answer bias and browser QA are unresolved. Publication approval is **not granted**.
+GitHub serves `.html` source files as downloads or code previews, not as a hosted interactive website. Download `course.html` and open it in Chrome, Edge or another modern browser to use the course offline. This is the complete interactive 22-lesson player — **not a screenshot or placeholder**.
 
-The import kit should be used to populate this directory while preserving byte-exact content hashes. See the repository's main README for the demo.
+## Status and source files
+
+The player has been uploaded and verified. Its editable `course.json`, individual module JSONs, checkpoint and review files **have not yet been committed here**; those remain in the course checkpoint package.
+
+The player is a **self-verified draft, not publication-approved**. Ten modules had independent review passes tied to their hashes. Module 5 was repaired after a failed independent review and needs renewed review; assessment-bias warnings and end-to-end browser QA remain outstanding.
