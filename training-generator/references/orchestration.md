@@ -1,30 +1,21 @@
-# Shared Chat and Codex execution contract (v0.6)
+# Training Generator v0.7 checkpoint orchestration
 
-Both hosts use the same `training-generator/SKILL.md`, course schema, validator and persisted `CONTINUE_HERE.json`.
+Use the script as the sole state writer; never manually edit CONTINUE_HERE.json.
 
-Functional user requests:
-- "Create a course": establish full syllabus with planned lessons; create the checkpoint index; author only the next coherent module.
-- "Continue course": retrieve stored checkpoint, verify approved artifact hashes and work only on the next unapproved module.
-- "Review module": call a real independent reviewer if configured or export a handoff. Never synthesize review results.
-- "Show progress": read the checkpoint file, not conversation history.
+Draft lane: planned -> review_pending -> self_verified.
+- python scripts/checkpoint.py init --course courses/demo --index syllabus.json
+- python scripts/checkpoint.py submit --course courses/demo --module m01.json --author ChatGPT
+- python scripts/checkpoint.py selfreview --course courses/demo --report self-review-m01.json
+- python scripts/checkpoint.py status --course courses/demo
+After a verified self-review, author the next module without awaiting external review.
 
-Local runner:
-```bash
-python training-generator/scripts/checkpoint.py init --course courses/example --index syllabus.json
-python training-generator/scripts/checkpoint.py status --course courses/example
-python training-generator/scripts/checkpoint.py submit --course courses/example --module module-1.json --author Codex
-python training-generator/scripts/checkpoint.py review --course courses/example --report independent-review.json
-python training-generator/scripts/checkpoint.py approve --course courses/example --approver "Human reviewer"
-```
+Self-review JSON: {"module_sha256":"<exact SHA256>","review_type":"self_adversarial","overall":"pass","checks":[{"name":"validator","result":"pass","evidence":"execution evidence"}],"findings":[]}.
+A not_executed check is not a pass. A failing check or unresolved critical/high/blocking finding rejects selfverification.
 
-Each checkpoint stores content SHA256, validation and review status. Review PASS must match the exact bytes. Human approval follows independent review. No review, no approval. Publication is separately controlled. Chat does not secretly start Codex or Claude Code; it executes the same portable workflow using accessible tools, or supplies a package when persistence is unavailable. A GitHub commit is required for persistent sharing; filesystem atomic writes do not imply atomic GitHub operations.
+Independent lane (may lag drafting):
+- python scripts/checkpoint.py review --course courses/demo --module-id m01 --report external.json
+- python scripts/checkpoint.py approve --course courses/demo --module-id m01 --approver "Human owner"
 
-Reviewer identity is an **honour-system metadata assertion**, not cryptographically proven independence. The checkpoint tool rejects the same author/reviewer string when author is supplied, but cannot establish model identity or prevent fabricated reviews. The reviewer must be a different model or independently isolated session from the author, whichever host is running. No real reviewer has been connected automatically.
+External JSON: {"module_sha256":"<exact SHA256>","verdict":"pass","reviewer":"Claude Code","findings":[]}. Reviewer name is a metadata assertion, not proof of independent execution. A passing independent review is NOT publication authorization. All module hashes are checked on state transitions. Do not alter existing lesson files during checkpoint repair.
 
-Review JSON example:
-```json
-{"module_sha256":"<sha256-of-module-json-file>","verdict":"pass","reviewer":"Claude Code","findings":[]}
-```
-The SHA must match the submitted module artifact exactly. A failing verdict sets `needs_repair`; passing only sets `review_passed` pending human approval. Submit must preserve the exact planned lesson titles (case/whitespace normalized); curriculum changes need an explicit separately reviewed replan before resubmission.
-
-Independent Claude Code / other provider review is conditional on an authenticated installed runner and isolated permissions. Child-facing content additionally needs educator and learner validation. The rejected 2026 mass-generated courses must never be marked approved. 
+Historical manually edited states should be regenerated through init/submit/selfreview using real original module files and review evidence; never invent a self-review PASS or pretend missing evidence exists.
