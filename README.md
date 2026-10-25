@@ -1,7 +1,7 @@
 
 # Training Generator
 
-[![Training Generator — One prompt in. A whole course out.](media/training-generator-demo.gif)](media/training-generator-burst-graph-arrow.mp4)
+[![Training Generator — One prompt in. A whole course out.](media/training-generator.gif)](media/training-generator-burst-graph-arrow.mp4)
 
 **One prompt in. A whole course out.**
 
