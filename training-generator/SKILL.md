@@ -1,3 +1,7 @@
+---
+name: training-generator
+description: Create, deepen, revise, validate and package interactive educational courses and lessons as offline HTML5 players. Use for syllabus-based courses, rigorous adult technical education, age-appropriate lessons, narrated visual scene demonstrations, assessment banks and ChatGPT/Codex Skill-driven course generation, resumable one-module checkpoints, and external review handoffs.
+---
 
 # Training Generator
 
@@ -7,20 +11,13 @@ Build genuinely teachable courses, not outlines or decorative pages. Work module
 1. Identify learner, scope, target depth, syllabus basis, outcomes and offline needs; infer defaults when safe.
 2. Design the full module/lesson index. Represent ungenerated lessons as `status:"planned"`; set root `status:"draft"` until all lessons are complete.
 3. Read `references/teaching-quality.md`, `references/university-sources.md` and `references/course-schema.md`. Model the JSON on `references/example-lesson.json`.
-4. Never use a slot-filled lesson factory: author one coherent module per checkpoint, splitting its lessons into multiple passes if necessary; keep the remainder planned. Research primary university materials and papers first; log source-specific links and evidence limits. Generate original graduate-depth lessons in one module JSON at a time, with mathematical derivations, real code, nontrivial worked steps and labs when appropriate. Preserve source provenance and distinguish verified links from suggested resources. Never invent source checks.
+4. Never use a slot-filled lesson factory: author **one complete coherent module per checkpoint** (split its lessons into separate passes when needed); keep the remainder planned. Research primary university materials and papers first; log source-specific links and evidence limits. Generate original graduate-depth lessons in one module JSON at a time, with mathematical derivations, real code, nontrivial worked steps and labs when appropriate. Preserve source provenance and distinguish verified links from suggested resources. Never invent source checks.
 5. Reject cross-lesson duplication of prose, lab, pitfalls, visual sequences, code and question prompts. Run `python scripts/validate_course.py path/to/course.json`, repair every failure and investigate every quality warning rather than targeting the minimum, and check objective answer keys and technical accuracy separately.
 6. Validate merged courses (module parts are inputs to merge, not standalone root courses). For large courses use `python scripts/merge_course.py index.json module1.json module2.json > course.json`, then run `python scripts/build_course.py course.json output.html`. The offline player shows the full index including disabled planned lessons, visual scene cues, browser speech, a resources pane and shuffled Practice Time questions.
 7. Test the HTML in a browser if a browser harness is available. Otherwise report **static validation only — not browser-tested**. Deliver HTML, editable JSON, and a concise disclosure of unimplemented media and missing lessons.
 
-## Mandatory adversarial pre-completion review
-
-Before treating any lesson as complete, perform a deliberate adversarial self-verification pass, including in chat. Follow references/adversarial-review.md: challenge topic coverage, syllabus alignment, prerequisites, solved mathematics, assessment answer keys, executable code, age-appropriate teaching visuals, originality against prior lessons, citations and offline player behavior. Run applicable tests, repair defects, and repeat up to three times. Persist evidence tied to module SHA. Never claim tests not executed.
-
-Chat may produce a SELF-VERIFIED DRAFT after passing these checks but cannot claim independent review. Do not pretend to invoke Claude or bypass the independent-review checkpoint. In Codex/VS Code, when separately installed and authenticated, invoke Claude Code as independent reviewer of the frozen artifact SHA. Otherwise leave review pending. The approved state still requires its separate approval gate.
-
-## Shared Chat, Codex, and Claude Code orchestration
-
-Read `references/orchestration.md` for identical host-neutral commands and state transitions. Functional users can author, resume and review through chat without knowing Codex; a CLI user can run the same skill. Use `scripts/checkpoint.py` whenever a local execution environment is available. A module may advance the draft lane after deterministic validation and selfreview PASS. Independent review and human approval are required only to mark independently reviewed or approved; the draft lane never masquerades as publication approval. Without reviewer access, export a review handoff and leave the checkpoint `review_pending`. Do not invent cross-session persistence or claim automatic Claude Code calls from chat.
+## Shared chat / Codex orchestration
+Read `references/orchestration.md` before creating, continuing, reviewing or approving a course. Use `scripts/checkpoint.py` for the same durable state transitions in both hosts when local execution is available. Advance the draft-generation lane after `selfreview` PASS using the checkpoint script; never promote a module to independently reviewed or approved without separate independent review and human approval. Chat can author and validate directly; Codex is optional, not a requirement for functional users. External provider review is only available if actually configured; otherwise export the review package and keep `review_pending`.
 
 ## Scale without losing quality
 For large courses, keep a master index with planned lessons; write and validate one module at a time. Merge module JSONs with `scripts/merge_course.py` into a single validated course JSON; do not concatenate manually. The renderer accepts a single merged JSON file. Never label an outline a completed course. For full-course asks, preserve the complete planned index and deliver only the individually-authored lessons achieved in this pass; do not synthesize dozens of repetitive bodies.
