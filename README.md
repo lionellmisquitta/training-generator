@@ -1,77 +1,233 @@
+
 # Training Generator
 
-## See Training Generator in action
+[![Training Generator — One prompt in. A whole course out.](media/training-generator-demo.gif)](media/training-generator-burst-graph-arrow.mp4)
 
-[![Training Generator demo](media/training-generator-demo.gif)](media/training-generator-burst-graph-arrow.mp4)
+**One prompt in. A whole course out.**
 
-One prompt in. A whole course out.
+Turn a single prompt into a structured, interactive educational course — with in-depth lessons, worked examples, practice questions, and an offline HTML5 learning experience.
 
-[**▶ Watch the Training Generator demo (MP4)**](media/training-generator-burst-graph-arrow.mp4)
+**▶ Click the animated demo above to watch the full video.**
 
-A short visual introduction to the project. GitHub README pages do not reliably autoplay MP4 files inline; use the link to open the full video.
+---
 
-Create substantial educational courses **one module at a time**, with offline HTML5 lessons, worked examples, practice questions, executable checks, and resumable checkpoints.
+## What is Training Generator?
 
-> **Status:** The Skill and its local tools are available in this repository. The generated AI Engineering course is **not fully uploaded here**. Course content is not publication-approved merely because its structural checks pass. External Claude/Codex execution and unattended hosted orchestration are not bundled.
+Training Generator is an AI Skill that helps ChatGPT, Codex, and compatible AI assistants create comprehensive educational courses.
 
-## Sample course
+Rather than generating an entire course in one shallow pass, it develops one complete module at a time, validating and reviewing the content before proceeding.
 
-Explore the [AI Engineering sample course](sample-courses/ai-engineering/README.md) — 22 lessons across 11 modules. Its complete generated files are not yet uploaded; the sample README records the quality-review status.
+### Key Features
 
-## Quick installation
+- **AI-powered course creation** — Generate a structured syllabus from a topic, audience, and learning objective.
+- **In-depth lessons** — Include explanations, worked examples, mathematical derivations, and executable code where appropriate.
+- **Interactive HTML5 player** — Export courses as standalone HTML files that work offline.
+- **Practice and assessments** — Generate quizzes and knowledge checks alongside lessons.
+- **Narrated learning** — Use available browser speech synthesis to read lesson content aloud.
+- **Resumable checkpoints** — Continue from the last verified module without regenerating previous work.
+- **Adversarial quality reviews** — Identify duplicated material, incorrect answers, shallow explanations, and technical mistakes.
+- **Independent review support** — Export review packages for evaluation by a separately configured reviewer such as Claude Code.
+- **Portable workflow** — Use the Skill in compatible ChatGPT and Claude environments.
 
-The installable Skill folder is **[`training-generator/`](training-generator/)**. Keep its `SKILL.md`, `scripts/`, `references/`, and `agents/` together. See **[INSTALL.md](INSTALL.md)** for step-by-step installation in ChatGPT, Claude, and Claude Code.
+> **Development status:** The Skill and its local authoring tools are available. Independent review, browser testing, and human publication approval remain separate quality gates. Neural narration, full animation, and automatic cloud orchestration are not implemented.
 
-**Claude Code (Windows PowerShell; install for one project):**
+---
+
+## Sample Courses
+
+### AI Engineering — 22 Lessons Across 11 Modules
+
+Explore an AI Engineering course generated using the Training Generator workflow.
+
+The course covers topics such as retrieval, model training, inference optimization, agents, evaluation, alignment, and enterprise deployment.
+
+**[Explore the AI Engineering sample →](sample-courses/ai-engineering/README.md)**
+
+The full course has been authored as a draft. Its complete player and source files are not yet fully uploaded to this repository.
+
+**Quality status:** Ten modules previously passed independent review against their recorded hashes. Module 5 was subsequently repaired and requires another independent review. Course-wide assessment improvements and browser testing remain outstanding.
+
+---
+
+## Quick Installation
+
+The reusable Skill is located in the [`training-generator/`](training-generator/) folder.
+
+It contains:
+
+- `SKILL.md` — Main Skill instructions
+- `scripts/` — Course validation, checkpoint management, merging, and HTML generation
+- `references/` — Course schemas, teaching-quality requirements, and review protocols
+- `agents/` — ChatGPT Skill metadata
+
+### Option 1 — ChatGPT
+
+1. Download this repository using **Code → Download ZIP**.
+2. Extract the repository.
+3. Locate the inner `training-generator/` folder containing `SKILL.md`.
+4. ZIP that folder, preserving its complete directory structure.
+5. Import it through ChatGPT's custom Skills interface, where supported.
+
+Do not upload only `SKILL.md`; the supporting scripts and references are part of the Skill.
+
+### Option 2 — Claude Code
+
+Install Git and Python 3, then open PowerShell:
 
 ```powershell
 git clone https://github.com/lionellmisquitta/training-generator.git
 cd training-generator
+
 New-Item -ItemType Directory -Force .claude/skills | Out-Null
 Copy-Item -Recurse -Force training-generator .claude/skills/
 ```
 
-Open this repository in Claude Code; the Skill will be at `.claude/skills/training-generator/SKILL.md`. For a global Claude Code install, copy the `training-generator` folder to `~/.claude/skills/` instead.
+Start Claude Code in the project.
 
-**ChatGPT / Claude web:** create a ZIP containing exactly one top-level `training-generator/` folder, then use the product's custom Skill upload/import interface if it is available to your account. Do not upload only `SKILL.md`: the scripts and references are required. Installation steps and availability may differ by client and plan.
+The installed Skill will be located at:
 
-## How to use
+```text
+.claude/skills/training-generator/SKILL.md
+```
 
-Tell the assistant: **"Use Training Generator to create a course on [topic] for [audience]."** It should build a syllabus and author the next complete module rather than mass-generate shallow lessons.
+For global installation, place the Skill folder under `~/.claude/skills/`.
 
-To resume: **"Use Training Generator to continue from `CONTINUE_HERE.json`; preserve earlier modules and run the adversarial review."**
+### Option 3 — Claude Web
 
-To validate or build a course locally (Python 3 required):
+Where custom Skills are supported, upload the same complete Skill ZIP through Claude's Skills interface.
+
+**[Read the full installation guide →](INSTALL.md)**
+
+---
+
+## How to Use
+
+Once the Skill is installed, ask your AI assistant:
+
+**Example 1 — Create a course**
+
+> Use Training Generator to create a graduate-level course on AI Engineering. Build the full syllabus, then generate and validate the first module.
+
+**Example 2 — Create a school course**
+
+> Use Training Generator to build a Grade 2 Mathematics course aligned with the syllabus I provide. Use age-appropriate explanations, worked examples, and practice questions.
+
+**Example 3 — Continue an existing course**
+
+> Use Training Generator to continue from CONTINUE_HERE.json. Preserve all previously generated modules and complete the next checkpoint.
+
+**Example 4 — Review course quality**
+
+> Run an adversarial review of the latest module. Check mathematical correctness, executable examples, assessment keys, teaching depth, and cross-lesson duplication.
+
+---
+
+## Build an Offline HTML Course
+
+Python 3 is required for local validation and rendering.
+
+Validate an existing course JSON:
 
 ```bash
 python training-generator/scripts/validate_course.py path/to/course.json
+```
+
+Generate its standalone HTML player:
+
+```bash
 python training-generator/scripts/build_course.py path/to/course.json path/to/course.html
 ```
 
-Open the resulting `course.html` in a browser. The player uses browser/system speech; external resources and neural voices are not packaged offline.
+Open `course.html` in a modern browser.
 
-## Checkpoint flow
+The course player provides lesson navigation, practice questions, and browser-based narration. External learning resources may require an internet connection.
 
-The draft-production lane is **`planned → review_pending → self_verified → next module`**. Self-verification consists of executable checks and an adversarial review report tied to the submitted module's SHA-256.
+---
 
-Independent review (such as actual Claude Code output) and human approval are **separate gates**. Never hand-edit `CONTINUE_HERE.json`, invent review evidence, or represent self-verified material as independently approved.
+## Quality and Checkpoint Workflow
 
-The command contract and report formats are in [orchestration.md](training-generator/references/orchestration.md). Teaching requirements are in [teaching-quality.md](training-generator/references/teaching-quality.md), and the course JSON structure is described in [course-schema.md](training-generator/references/course-schema.md).
-
-## Project layout
+Training Generator maintains a resumable state for each course.
 
 ```text
-training-generator/                 # install this folder as one Skill
-  SKILL.md
-  agents/openai.yaml
-  references/
-  scripts/
-knowledge-graph/                    # early project knowledge baseline
-courses/ai-engineering/             # status and import instructions; not full course data
+Define Course
+     |
+     v
+Create Full Syllabus
+     |
+     v
+Author One Module
+     |
+     v
+Validate + Test
+     |
+     v
+Adversarial Self-Review
+     |
+     v
+Self-Verified Checkpoint
+     |
+     v
+Continue Next Module
 ```
 
-## Current limitations
+Independent review and human approval happen through separate gates.
 
-The validator checks structure and some originality heuristics; it does **not** establish factual accuracy, adequate pedagogy, browser correctness, independent review, or suitability for children. A separate reviewer must actually execute before its verdict is recorded. Automated cloud continuation, neural narration, SCORM export, and full browser QA are not included.
+A self-verified module is **not automatically publication-approved**.
 
-This repository is a reusable **course-authoring tool**, not a certified collection of completed courses.
+Checkpoint state is recorded in `CONTINUE_HERE.json` and managed through:
+
+```text
+training-generator/scripts/checkpoint.py
+```
+
+**[Read the checkpoint orchestration guide →](training-generator/references/orchestration.md)**
+
+---
+
+## Repository Structure
+
+```text
+training-generator/
+|
+|-- README.md
+|-- INSTALL.md
+|
+|-- media/
+|   |-- training-generator-demo.gif
+|   |-- training-generator-burst-graph-arrow.mp4
+|
+|-- training-generator/
+|   |-- SKILL.md
+|   |-- agents/
+|   |-- scripts/
+|   |-- references/
+|
+|-- sample-courses/
+|   |-- ai-engineering/
+|
+|-- knowledge-graph/
+```
+
+The structure above shows the intended demo and sample layout. The GIF and complete AI Engineering course assets must be uploaded before those components are fully available.
+
+---
+
+## Current Limitations
+
+Training Generator is an evolving course-authoring system.
+
+- Structural validation does not guarantee factual or pedagogical accuracy.
+- Independent external review must actually be performed; it is not simulated.
+- Browser speech uses available system voices, not bundled neural TTS.
+- Visual scenes are not equivalent to fully choreographed animations.
+- Browser compatibility and learning effectiveness require separate testing.
+- SCORM export and unattended cloud orchestration are not currently included.
+- Generated courses require appropriate human review before publication, particularly for children.
+
+---
+
+## Project Vision
+
+**Make deep, structured education easier to create, validate, improve, and share.**
+
+From a single prompt to an interactive course — without sacrificing learning quality for generation speed.
