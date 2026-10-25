@@ -4,6 +4,16 @@ Create substantial educational courses **one module at a time**, with offline HT
 
 > **Status:** The Skill and its local tools are available in this repository. The generated AI Engineering course is **not fully uploaded here**. Course content is not publication-approved merely because its structural checks pass. External Claude/Codex execution and unattended hosted orchestration are not bundled.
 
+## Demo and sample course
+
+The 42-second **Training Generator — Burst Graph Arrow** demo is prepared for the landing page. Its GIF and MP4 have not yet been committed to GitHub, so **the preview will appear after the media upload**:
+
+![Training Generator animated demo](media/training-generator-demo-preview.gif)
+
+[Watch the full 42-second demo](media/training-generator-burst-graph-arrow.mp4)
+
+Explore [Sample Courses — AI Engineering](sample-courses/ai-engineering/README.md). The complete 22-lesson draft is prepared for upload; see the sample folder for validation and independent-review status. The course is not publication-approved.
+
 ## Quick installation
 
 The installable Skill folder is **[`training-generator/`](training-generator/)**. Keep its `SKILL.md`, `scripts/`, `references/`, and `agents/` together. See **[INSTALL.md](INSTALL.md)** for step-by-step installation in ChatGPT, Claude, and Claude Code.
