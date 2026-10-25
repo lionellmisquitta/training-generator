@@ -53,7 +53,7 @@ def validate(d):
                 wc=sum(len(x.split()) for x in prose)
                 child=(band=='6-8')
                 if wc<(150 if child else 300):issues.append(f'{p}: shallow explanation ({wc} words)')
-                summaries.append((l.get('title',''),wc,sum(1 for x in explanation if codepart(x)),len(explanation),len(l.get('questions',[])) if isinstance(l.get('questions'),list) else 0))
+                summaries.append((l.get('title',''),wc,sum(1 for x in explanation if codepart(x))+sum(1 for ex0 in l.get('examples',[]) if isinstance(ex0,dict) for step in (ex0.get('walkthrough',[]) if isinstance(ex0.get('walkthrough'),list) else [ex0.get('walkthrough')]) if codepart(step)),len(explanation),len(l.get('questions',[])) if isinstance(l.get('questions'),list) else 0))
                 signature=' '.join(para).strip()
                 for paragraph in prose:
                     tokens=re.findall(r"\b[\w]+\b",paragraph.casefold())
@@ -150,6 +150,22 @@ def validate(d):
     if not lessons:issues.append('No lessons')
     if not complete:issues.append('No generated lessons')
     warnings=[]
+    sentence_owners=defaultdict(set)
+    for lesson_number,lesson in original:
+        blocks=lesson.get('explanation',[])
+        for example in lesson.get('examples',[]):
+            w=example.get('walkthrough',[])
+            blocks+=w if isinstance(w,list) else [w]
+        for block in blocks:
+            if codepart(block):continue
+            for sentence in re.split(r'(?<=[.!?])\s+|\n+',textpart(block)):
+                norm=' '.join(sentence.casefold().split())
+                if len(re.findall(r'\b[\w]+\b',norm))>=12:
+                    sentence_owners[norm].add(lesson_number)
+    for sentence,owners in sentence_owners.items():
+        if len(owners)>1:warnings.append(f'verbatim sentence 12+ words shared across lessons {sorted(owners)}: {sentence[:90]}')
+    for n,l in original:
+        if not str(l.get('evidence_note','')).strip():warnings.append(f'lesson {n}: missing evidence_note')
     for title,wc,code,paras,nq in summaries:
         if band=='adult' and wc<600:warnings.append(f'{title}: near outline depth ({wc} prose words; target 600-900+ where appropriate)')
         if band=='adult' and code==0:warnings.append(f'{title}: no code blocks; verify whether programming example is needed')
@@ -161,7 +177,9 @@ def validate(d):
         if answers:
             if len(set(answers))<4:warnings.append('MCQ answer position unused across course')
             longest=sum((lambda lens,answer: lens.count(max(lens))==1 and lens[answer]==max(lens))([len(c) for c in q['choices']],q['answer']) for q in allq if type(q.get('answer'))==int and isinstance(q.get('choices'),list) and len(q['choices'])==4)
-            if longest/len(answers)>.60:warnings.append('MCQ correct answer is longest too often')
+            if longest/len(answers)>.40:warnings.append(f'MCQ correct answer is strictly longest in {longest}/{len(answers)} items ({longest/len(answers):.0%}; target <=40%)')
+            counts=Counter(answers)
+            if max(counts.values())>len(answers)*.38:warnings.append(f'MCQ key position skew: {dict(sorted(counts.items()))}')
     validate.warnings=warnings
     validate.summaries=summaries
     return issues,lessons
