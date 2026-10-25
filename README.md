@@ -2,6 +2,10 @@
 
 ## See Training Generator in action
 
+[![Training Generator demo](media/training-generator-demo.gif)](media/training-generator-burst-graph-arrow.mp4)
+
+One prompt in. A whole course out.
+
 [**▶ Watch the Training Generator demo (MP4)**](media/training-generator-burst-graph-arrow.mp4)
 
 A short visual introduction to the project. GitHub README pages do not reliably autoplay MP4 files inline; use the link to open the full video.
