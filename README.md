@@ -1,24 +1,63 @@
 # Training Generator
 
-Reusable course-authoring Skill and knowledge baseline. **Status: v0.6 portable module checkpoint state machine implemented; external Claude Code invocation and hosted cross-session runner remain not implemented.**
+Create substantial educational courses **one module at a time**, with offline HTML5 lessons, worked examples, practice questions, executable checks, and resumable checkpoints.
 
-## Current capability
-- `training-generator/SKILL.md` is the current Skill.
-- Its validator rejects substantial duplicate prose, repeated labs, duplicate code, and templated questions. The earlier Grade 2 Maths, Game Theory and full AI Engineering generated courses **failed** the v0.5 originality gate and are **not approved for publication**.
-- The offline player builds HTML5 from course JSON, but no SCORM implementation, neural voice or independently validated course-content pipeline is claimed.
+> **Status:** The Skill and its local tools are available in this repository. The generated AI Engineering course is **not fully uploaded here**. Course content is not publication-approved merely because its structural checks pass. External Claude/Codex execution and unattended hosted orchestration are not bundled.
 
-## Proposed workflow
-1. Define the full curriculum and record evidence-backed concepts and prerequisites in `knowledge-graph/`.
-2. Author **one module per checkpoint**, without mass-generating templated lessons.
-3. Run deterministic tests and cross-module duplication checks.
-4. Run an independently configured Claude Code reviewer in an isolated read-only workspace; require reproducible defects and evidence.
-5. Repair, retest, and request human publication approval. Only then mark module `approved`.
-6. Save `CONTINUE_HERE.json` and content hashes; resume from the last approved module.
+## Quick installation
 
-The shared checkpoint CLI is implemented in `training-generator/scripts/checkpoint.py` and documented in `training-generator/references/orchestration.md`. It can be invoked from ChatGPT when tools and storage are available, or from Codex locally. Claude Code API invocation, automatic cloud orchestration, SCORM export, and full Graph Generator KGP visualizations remain future work.
+The installable Skill folder is **[`training-generator/`](training-generator/)**. Keep its `SKILL.md`, `scripts/`, `references/`, and `agents/` together. See **[INSTALL.md](INSTALL.md)** for step-by-step installation in ChatGPT, Claude, and Claude Code.
 
-## Knowledge baseline
-`knowledge-graph/nodes.jsonl`, `relationships.jsonl`, `evidence.jsonl`, `decisions.md`, `unknowns.md`. These are **initial source-grounded graph records**, not a validated full KGP package. See `knowledge-graph/README.md`.
+**Claude Code (Windows PowerShell; install for one project):**
 
-## Safety
-Do not publish earlier course exports. A passing structural validator is not proof of teaching effectiveness. Child-facing material requires educator review and learner testing.
+```powershell
+git clone https://github.com/lionellmisquitta/training-generator.git
+cd training-generator
+New-Item -ItemType Directory -Force .claude/skills | Out-Null
+Copy-Item -Recurse -Force training-generator .claude/skills/
+```
+
+Open this repository in Claude Code; the Skill will be at `.claude/skills/training-generator/SKILL.md`. For a global Claude Code install, copy the `training-generator` folder to `~/.claude/skills/` instead.
+
+**ChatGPT / Claude web:** create a ZIP containing exactly one top-level `training-generator/` folder, then use the product's custom Skill upload/import interface if it is available to your account. Do not upload only `SKILL.md`: the scripts and references are required. Installation steps and availability may differ by client and plan.
+
+## How to use
+
+Tell the assistant: **"Use Training Generator to create a course on [topic] for [audience]."** It should build a syllabus and author the next complete module rather than mass-generate shallow lessons.
+
+To resume: **"Use Training Generator to continue from `CONTINUE_HERE.json`; preserve earlier modules and run the adversarial review."**
+
+To validate or build a course locally (Python 3 required):
+
+```bash
+python training-generator/scripts/validate_course.py path/to/course.json
+python training-generator/scripts/build_course.py path/to/course.json path/to/course.html
+```
+
+Open the resulting `course.html` in a browser. The player uses browser/system speech; external resources and neural voices are not packaged offline.
+
+## Checkpoint flow
+
+The draft-production lane is **`planned → review_pending → self_verified → next module`**. Self-verification consists of executable checks and an adversarial review report tied to the submitted module's SHA-256.
+
+Independent review (such as actual Claude Code output) and human approval are **separate gates**. Never hand-edit `CONTINUE_HERE.json`, invent review evidence, or represent self-verified material as independently approved.
+
+The command contract and report formats are in [orchestration.md](training-generator/references/orchestration.md). Teaching requirements are in [teaching-quality.md](training-generator/references/teaching-quality.md), and the course JSON structure is described in [course-schema.md](training-generator/references/course-schema.md).
+
+## Project layout
+
+```text
+training-generator/                 # install this folder as one Skill
+  SKILL.md
+  agents/openai.yaml
+  references/
+  scripts/
+knowledge-graph/                    # early project knowledge baseline
+courses/ai-engineering/             # status and import instructions; not full course data
+```
+
+## Current limitations
+
+The validator checks structure and some originality heuristics; it does **not** establish factual accuracy, adequate pedagogy, browser correctness, independent review, or suitability for children. A separate reviewer must actually execute before its verdict is recorded. Automated cloud continuation, neural narration, SCORM export, and full browser QA are not included.
+
+This repository is a reusable **course-authoring tool**, not a certified collection of completed courses.
