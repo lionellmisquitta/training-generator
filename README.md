@@ -6,13 +6,11 @@ Create substantial educational courses **one module at a time**, with offline HT
 
 ## Demo and sample course
 
-The 42-second **Training Generator — Burst Graph Arrow** demo is prepared for the landing page. Its GIF and MP4 have not yet been committed to GitHub, so **the preview will appear after the media upload**:
+**Training Generator** creates interactive, offline-first lessons with worked examples, quizzes and resumable review checkpoints.
 
-![Training Generator animated demo](media/training-generator-demo-preview.gif)
+Explore the [AI Engineering sample course](sample-courses/ai-engineering/README.md) — a 22-lesson, 11-module draft. Its files and player are not yet fully committed; its README records the review and repair status.
 
-[Watch the full 42-second demo](media/training-generator-burst-graph-arrow.mp4)
-
-Explore [Sample Courses — AI Engineering](sample-courses/ai-engineering/README.md). The complete 22-lesson draft is prepared for upload; see the sample folder for validation and independent-review status. The course is not publication-approved.
+**Video demo:** the uploaded MP4 has not yet been committed to GitHub. A playable preview will be added here after a verified media upload. No broken video or image links are shown.
 
 ## Quick installation
 
