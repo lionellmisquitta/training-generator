@@ -23,7 +23,7 @@ def validate(d):
     mods=d.get('modules')
     if not isinstance(mods,list) or not mods:return issues+['modules must be nonempty array'],[]
     lessons=[];seen={};complete=0; summaries=[]; allq=[]; resource_sets=[]
-    original=[]; sentence_owner=defaultdict(set); code_owner=defaultdict(set); prompt_owner=defaultdict(set)
+    original=[]; ngram_owner=defaultdict(set); code_owner=defaultdict(set); prompt_owner=defaultdict(set)
     lab_owner=defaultdict(set); pitfalls_owner=defaultdict(set); scene_owner=defaultdict(set); lab_sentence_owner=defaultdict(set)
     for mi,m in enumerate(mods):
         if not isinstance(m,dict) or not good(m.get('title')) or not isinstance(m.get('lessons'),list):
@@ -56,10 +56,9 @@ def validate(d):
                 summaries.append((l.get('title',''),wc,sum(1 for x in explanation if codepart(x)),len(explanation),len(l.get('questions',[])) if isinstance(l.get('questions'),list) else 0))
                 signature=' '.join(para).strip()
                 for paragraph in prose:
-                    for sentence in re.split(r'(?<=[.!?])\s+|\n+', paragraph):
-                        normalized=' '.join(sentence.casefold().split())
-                        if len(re.findall(r"\b[\w]+\b",normalized))>=8:
-                            sentence_owner[normalized].add(n)
+                    tokens=re.findall(r"\b[\w]+\b",paragraph.casefold())
+                    for i in range(max(0,len(tokens)-5)):
+                        ngram_owner[tuple(tokens[i:i+6])].add(n)
                 for block in explanation:
                     if codepart(block) and block.get("text","").strip():code_owner[block["text"].strip()].add(n)
                 if signature in seen:issues.append(f'{p}: explanation duplicates lesson {seen[signature]}')
@@ -108,16 +107,14 @@ def validate(d):
     # Cross-lesson integrity gate: fail manufactured courses, not merely identical full paragraphs.
     for n,l in original:
         paragraphs=l.get('explanation',[])
-        sentences=set()
+        tokens=[]
         for part in paragraphs if isinstance(paragraphs,list) else []:
-            if codepart(part):continue
-            for sentence in re.split(r'(?<=[.!?])\s+|\n+',textpart(part)):
-                norm=' '.join(sentence.casefold().split())
-                if len(re.findall(r'\b[\w]+\b',norm))>=8:sentences.add(norm)
-        if sentences:
-            shared=sum(len(sentence_owner[t]-{n})>0 for t in sentences)
-            if shared/len(sentences)>.20:
-                issues.append(f'lesson {n}: repeated explanatory sentences across lessons ({shared}/{len(sentences)} = {shared/len(sentences):.0%}; max 20%)')
+            if not codepart(part):tokens.extend(re.findall(r"\b[\w]+\b",textpart(part).casefold()))
+        grams=set(tuple(tokens[i:i+6]) for i in range(max(0,len(tokens)-5)))
+        if grams:
+            shared=sum(bool(ngram_owner[g]-{n}) for g in grams)
+            if shared/len(grams)>.20:
+                issues.append(f'lesson {n}: repeated explanatory word 6-grams across lessons ({shared}/{len(grams)} = {shared/len(grams):.0%}; max 20%)')
         # Duplicate questions within one lesson (option order does not make a new question).
         prompts=[' '.join(q.get('prompt','').casefold().split()) for q in l.get('questions',[]) if isinstance(q,dict)]
         if len(set(prompts))<len(prompts):issues.append(f'lesson {n}: repeated question prompt within lesson')
@@ -158,7 +155,7 @@ def validate(d):
         answers=[q.get('answer') for q in allq if isinstance(q.get('choices'),list) and len(q['choices'])==4 and type(q.get('answer'))==int]
         if answers:
             if len(set(answers))<4:warnings.append('MCQ answer position unused across course')
-            longest=sum(len(q['choices'][q['answer']])==max(map(len,q['choices'])) for q in allq if type(q.get('answer'))==int and isinstance(q.get('choices'),list) and len(q['choices'])==4)
+            longest=sum((lambda lens,answer: lens.count(max(lens))==1 and lens[answer]==max(lens))([len(c) for c in q['choices']],q['answer']) for q in allq if type(q.get('answer'))==int and isinstance(q.get('choices'),list) and len(q['choices'])==4)
             if longest/len(answers)>.60:warnings.append('MCQ correct answer is longest too often')
     validate.warnings=warnings
     validate.summaries=summaries
