@@ -1,6 +1,6 @@
 # Training Generator
 
-Reusable course-authoring Skill and knowledge baseline. **Status: v0.5 Skill implemented; v0.6 module checkpoint orchestration and independent Claude Code review are proposed, not yet implemented.**
+Reusable course-authoring Skill and knowledge baseline. **Status: v0.6 portable module checkpoint state machine implemented; external Claude Code invocation and hosted cross-session runner remain not implemented.**
 
 ## Current capability
 - `training-generator/SKILL.md` is the current Skill.
@@ -15,7 +15,7 @@ Reusable course-authoring Skill and knowledge baseline. **Status: v0.5 Skill imp
 5. Repair, retest, and request human publication approval. Only then mark module `approved`.
 6. Save `CONTINUE_HERE.json` and content hashes; resume from the last approved module.
 
-Codex-to-Claude orchestration, provider adapters, persistent checkpoint runner, SCORM export, and full Graph Generator KGP visualizations are future implementation work.
+The shared checkpoint CLI is implemented in `training-generator/scripts/checkpoint.py` and documented in `training-generator/references/orchestration.md`. It can be invoked from ChatGPT when tools and storage are available, or from Codex locally. Claude Code API invocation, automatic cloud orchestration, SCORM export, and full Graph Generator KGP visualizations remain future work.
 
 ## Knowledge baseline
 `knowledge-graph/nodes.jsonl`, `relationships.jsonl`, `evidence.jsonl`, `decisions.md`, `unknowns.md`. These are **initial source-grounded graph records**, not a validated full KGP package. See `knowledge-graph/README.md`.
