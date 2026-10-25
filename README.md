@@ -33,6 +33,10 @@ Rather than generating an entire course in one shallow pass, it develops one com
 
 ---
 
+## Try the interactive AI Engineering course
+
+**[Download the complete 22-lesson interactive HTML5 player](sample-courses/ai-engineering/course.html)** — download `course.html` from GitHub and open it locally to use the interactive course. This is a draft, not a publication-approved release.
+
 ## Sample Courses
 
 ### AI Engineering — 22 Lessons Across 11 Modules
@@ -41,7 +45,7 @@ Explore an AI Engineering course generated using the Training Generator workflow
 
 The course covers topics such as retrieval, model training, inference optimization, agents, evaluation, alignment, and enterprise deployment.
 
-**[Explore the AI Engineering sample →](sample-courses/ai-engineering/README.md)**
+**[Explore the AI Engineering sample](sample-courses/ai-engineering/README.md)**
 
 The full course has been authored as a draft. Its complete player and source files are not yet fully uploaded to this repository.
 
