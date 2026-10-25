@@ -1,16 +1,18 @@
 # Training Generator
 
+## See Training Generator in action
+
+[**▶ Watch the Training Generator demo (MP4)**](media/training-generator-burst-graph-arrow.mp4)
+
+A short visual introduction to the project. GitHub README pages do not reliably autoplay MP4 files inline; use the link to open the full video.
+
 Create substantial educational courses **one module at a time**, with offline HTML5 lessons, worked examples, practice questions, executable checks, and resumable checkpoints.
 
 > **Status:** The Skill and its local tools are available in this repository. The generated AI Engineering course is **not fully uploaded here**. Course content is not publication-approved merely because its structural checks pass. External Claude/Codex execution and unattended hosted orchestration are not bundled.
 
-## Demo and sample course
+## Sample course
 
-**Training Generator** creates interactive, offline-first lessons with worked examples, quizzes and resumable review checkpoints.
-
-Explore the [AI Engineering sample course](sample-courses/ai-engineering/README.md) — a 22-lesson, 11-module draft. Its files and player are not yet fully committed; its README records the review and repair status.
-
-**Video demo:** the uploaded MP4 has not yet been committed to GitHub. A playable preview will be added here after a verified media upload. No broken video or image links are shown.
+Explore the [AI Engineering sample course](sample-courses/ai-engineering/README.md) — 22 lessons across 11 modules. Its complete generated files are not yet uploaded; the sample README records the quality-review status.
 
 ## Quick installation
 
