@@ -1,0 +1,14 @@
+interface:
+  display_name: Training Generator
+  short_description: Create rigorous interactive offline courses with narrated visual
+    cues
+  brand_color: '#2366B1'
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
