@@ -1,0 +1,54 @@
+name: Publish editable AI Engineering lesson source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/extract-course-source.yml'
+      - 'sample-courses/ai-engineering/course.html'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover editable JSON from published HTML
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          folder=pathlib.Path('sample-courses/ai-engineering')
+          text=(folder/'course.html').read_text(encoding='utf-8')
+          tag='const COURSE='
+          assert tag in text, 'Embedded course not found'
+          payload=text.split(tag,1)[1]
+          course,_=json.JSONDecoder().raw_decode(payload)
+          assert len(course.get('modules',[]))==11
+          assert sum(len(m.get('lessons',[])) for m in course['modules'])==22
+          (folder/'course.json').write_text(json.dumps(course,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          modules=folder/'modules'
+          modules.mkdir(exist_ok=True)
+          for i,module in enumerate(course['modules'],1):
+            (modules/f'm{i:02d}.json').write_text(json.dumps(module,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          (folder/'SOURCE_PROVENANCE.md').write_text(
+            '# Editable source provenance\n\n'
+            'These JSON files were deterministically extracted from the published HTML player; '
+            'they reproduce its lesson content but may not retain byte-for-byte module formatting '
+            'or SHA-256 hashes from the original course checkpoint archive. '
+            'The original checkpoint, independent review evidence, and CONTINUE_HERE.json '
+            'have **not** been copied by this workflow. Never apply prior independent-review '
+            'verdicts or approvals to these reserialized module hashes.\n',
+            encoding='utf-8')
+          PY
+      - name: Commit extracted course source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sample-courses/ai-engineering/course.json sample-courses/ai-engineering/modules/ sample-courses/ai-engineering/SOURCE_PROVENANCE.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish editable AI Engineering lesson source from player"
+            git push
+          fi
