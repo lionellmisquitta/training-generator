@@ -1,0 +1,295 @@
+{
+  "title": "Evaluation and Alignment",
+  "lessons": [
+    {
+      "title": "Task Evaluation",
+      "status": "generated",
+      "objectives": [
+        "Design a task-specific evaluation set with defensible sampling and a held-out lockbox",
+        "Compute pass rates and uncertainty intervals while distinguishing paired comparisons from independent samples",
+        "Build an evidence-based error taxonomy, test harness and release gate that catches regressions hidden by aggregate scores"
+      ],
+      "hook": "An assistant boasts a 94% answer accuracy score, yet an operations team discovers that it invents references when retrieval returns an empty result. A second version scores 95% but leaks private account details in one adversarial case. Which system is actually suitable for production? The answer requires defining what counts as success, which errors carry disproportionate risk, and how each scenario was sampled.",
+      "explanation": [
+        "A model benchmark is an operational measurement, not an intrinsic property of the model. Define a target task as an input distribution D, a policy of permitted actions P and a scoring function s(y, y*, context). If the task is evidence-grounded question answering, exact lexical match is an inadequate score: a different wording may preserve the right claim, while a fluent answer with an unrelated citation is incorrect. Separate factuality, citation support, permission compliance, abstention and latency. Each needs a falsifiable rubric with examples and explicit failure conditions. Record the evaluator version as carefully as the model version. Otherwise an improved score might simply reflect a changed rubric.",
+        "Build the evaluation set by sampling realistic workflows, rather than assembling only easy demonstration prompts. Stratify by query intent, document freshness, evidence availability, access role, language, sequence length and operational impact. Over-sample rare high-risk slices for diagnosis, but calculate an overall estimate with appropriate production weights; an intentionally balanced test set is not automatically representative of traffic. Use a locked, never-trained-on test subset, a separate development set for tuning and a canary set for newly observed failure patterns. Time and entity splits help prevent leakage between near-duplicate support tickets or revisions of the same document. Keep each example's source snapshot, permissions and ground truth provenance, and run the same fixtures against both versions.",
+        "Suppose a system passes 84 out of 100 independent Bernoulli cases. Its observed pass rate is p-hat=0.84, but sampling uncertainty matters: the plug-in standard error sqrt(p-hat(1-p-hat)/n) is approximately 0.0367, or 3.67 percentage points. A rough 95% normal interval is 0.84 ± 1.96×0.0367, about [0.768, 0.912]; Wilson intervals behave better for small n or rates near zero and one. These intervals represent repeated-sample variation under assumptions about independent sampling, not a promise about future distribution shift. Correlated tickets from one customer violate naive independence; cluster bootstrap by customer or session when appropriate.",
+        "When two models answer the same questions, evaluate paired outcomes. The meaningful evidence lives in discordant pairs: the items that baseline passes and candidate fails, and vice versa. A model gaining five wins while introducing four losses has only one net improvement, not nine independent gains. For a binary exact pass criterion, McNemar's test or a paired bootstrap can address significance. More importantly, a release gate should reject critical permission violations even if average task success improves. Examine worst-slice scores, calibration of abstention, citation precision and per-case failure explanations; define thresholds before seeing candidate performance to reduce post hoc cherry-picking.",
+        "Evaluation must also be reproducible. Pin the model identifier, prompt template, decoding parameters, retrieval index revision, tools, date of source snapshot and evaluator build. Capture raw responses, tool traces and labels without including secrets in sharable reports. Mark automated judge verdicts as model judgments, not gold truth; audit a sampled set of judge disagreements against trained human adjudication. For agentic tasks measure both the final outcome and the process: unauthorized tool calls, retries, cost, latency and recovery after tool failure. Release decisions should be an explicit conjunction of acceptance criteria, not a vaguely averaged quality number."
+      ],
+      "examples": [
+        {
+          "title": "Sampling uncertainty and slice-specific risk",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "A retrieval assistant passes 84 out of 100 independent test questions. We calculate its empirical success rate and both approximate and Wilson 95% intervals rather than reporting '84% accurate' as if it were exact. Next, split the cases: 80 routine questions with 72 passes and 20 permission-sensitive cases with 12 passes. Routine performance is 90%, but the sensitive slice is 60%. If policy requires at least 95% on permission-sensitive cases, the candidate fails release despite a respectable overall average. In a true privacy gate, any confirmed leak may be blocking independently of statistical rate. The interval script below implements a Wilson calculation with z=1.96 and asserts that the result lies inside [0,1]."
+            },
+            {
+              "type": "code",
+              "text": "from math import sqrt\n\ndef wilson(success, total, z=1.96):\n    assert total > 0 and 0 <= success <= total\n    p = success / total\n    d = 1 + z*z/total\n    center = (p + z*z/(2*total)) / d\n    half = z*sqrt((p*(1-p)+z*z/(4*total))/total)/d\n    return center-half, center+half\n\nlo, hi = wilson(84, 100)\nassert 0.75 < lo < 0.78 and 0.89 < hi < 0.91\nassert 12/20 < 0.95\nprint(round(lo, 4), round(hi, 4))"
+            }
+          ]
+        },
+        {
+          "title": "Paired evaluation of an attempted improvement",
+          "walkthrough": "Consider 50 identical evaluation prompts run against baseline and candidate. Both pass 35; both fail 6; the candidate alone succeeds on 5 and the baseline alone succeeds on 4. Each model's pass count is 40 versus 39, so the candidate gains one additional pass, not a five-point improvement. With only nine discordant observations, the improvement is weak evidence. Inspect the four regressions case by case: if one is unauthorized disclosure, block deployment. Archive the paired outcome table, identical retrieval snapshot and the scorer revision. Do not compute significance from two separate unpaired proportions, because that discards the pairing and often misstates uncertainty. The candidate should win on a locked set and satisfy all high-risk gates before rollout."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Define the contract",
+          "narration": "Start from the operational task and its failure modes before choosing any metric.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Task and permissions",
+              "Gold evidence and rubric",
+              "Hard release gates"
+            ]
+          }
+        },
+        {
+          "title": "Inspect slices",
+          "narration": "Aggregate performance can conceal a high-risk slice that fails far more frequently.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "Routine",
+                "value": 90
+              },
+              {
+                "label": "Sensitive",
+                "value": 60
+              }
+            ]
+          }
+        },
+        {
+          "title": "Paired wins and losses",
+          "narration": "Only discordant pairs explain why the candidate improved or regressed.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "Candidate-only wins",
+                "value": 5
+              },
+              {
+                "label": "Baseline-only wins",
+                "value": 4
+              }
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Build a reproducible evaluation gate",
+        "instructions": "Create 40 synthetic task records with two systems' binary outcomes, case IDs, risk tiers and evidence snapshots. Implement overall pass rate, Wilson interval, paired win/loss count and a blocking privacy gate. Deliberately add one leaked private field; verify that release is rejected even if total accuracy increases. Save dataset and evaluation script versions.",
+        "success": "A single deterministic command recomputes metrics, reports discordant pairs and fails release for the injected privacy violation."
+      },
+      "pitfalls": [
+        "Averaging incomparable metrics into one opaque score",
+        "Treating repeated customer tickets as independent samples",
+        "Using a development set repeatedly and calling it held-out",
+        "Confusing judge-model preferences with verified factual correctness",
+        "Reporting an overall improvement while hiding critical regressions"
+      ],
+      "questions": [
+        {
+          "prompt": "What is the most defensible way to compare two models on the same 50 tasks?",
+          "choices": [
+            "Compare their unrelated public benchmark rankings",
+            "Use paired per-task outcomes and inspect regressions",
+            "Compare only their average response lengths",
+            "Select whichever produces more fluent examples"
+          ],
+          "answer": 1,
+          "reason": "Paired evaluation controls for task differences and exposes discordant successes and failures."
+        },
+        {
+          "prompt": "A system improves overall pass rate but leaks restricted data on one test. What should a predefined privacy gate do?",
+          "choices": [
+            "Reject the candidate pending remediation",
+            "Ignore the leak because the mean improved",
+            "Remove the test case after scoring",
+            "Treat fluent explanations as mitigation"
+          ],
+          "answer": 0,
+          "reason": "Hard safety and permission constraints are not interchangeable with an average quality gain."
+        },
+        {
+          "prompt": "Why might a naive 95% confidence interval be misleading for clustered customer tickets?",
+          "choices": [
+            "The interval always exceeds one hundred percent",
+            "Accuracy cannot be measured on text tasks",
+            "The sample labels must be alphabetically sorted",
+            "Tickets from one customer may not be independent"
+          ],
+          "answer": 3,
+          "reason": "Correlated observations reduce effective sample size and can make naive uncertainty estimates too narrow."
+        }
+      ],
+      "resources": [
+        {
+          "title": "NIST AI Risk Management Framework",
+          "url": "https://www.nist.gov/itl/ai-risk-management-framework"
+        },
+        {
+          "title": "Stanford HELM: Holistic Evaluation of Language Models",
+          "url": "https://crfm.stanford.edu/helm/latest/"
+        },
+        {
+          "title": "McNemar test overview, NIST Dataplot",
+          "url": "https://www.itl.nist.gov/div898/software/dataplot/refman1/auxillar/mcnemar.htm"
+        }
+      ],
+      "evidence_note": "NIST and HELM are named methodological anchors; this run did not verify link accessibility or source licensing. Wilson calculations and paired-count arithmetic were independently checked by executing the included Python example. The example scenarios and pass rates are synthetic.",
+      "challenge": "Write a release policy for a customer-support agent that can read, cite and update records. Include ten adversarial cases, three shift-sensitive slices, a paired evaluation table, uncertainty treatment and a hard gate for unauthorized writes. Defend the sample design and show precisely which evidence would reverse your release decision."
+    },
+    {
+      "title": "Preference Optimization",
+      "status": "generated",
+      "objectives": [
+        "Explain the preference-data pipeline and its biases from pairwise labels to a reward or direct objective",
+        "Derive the DPO logistic objective and compute a worked preference margin",
+        "Diagnose reward hacking, overoptimization, and tradeoffs between helpfulness, refusal and task success"
+      ],
+      "hook": "Two assistants answer a request for a deployment plan. One is detailed but includes an unsafe irreversible action; the other refuses every action, including harmless read-only steps. Human annotators prefer different responses depending on which rubric they see. A preference model can optimize those rankings and still make the deployed system worse. Understanding this failure requires looking inside both the preference labels and the optimization objective.",
+      "explanation": [
+        "Preference optimization begins with a distribution over prompts x and pairs of candidate responses (y_w, y_l), where y_w is marked preferred. The label captures a judgment under a particular rubric, not the universal truth about which response is best. Define what annotators should prefer: factual accuracy, fulfilled user intent, evidence support, tone, and compliance with hard constraints. Show annotators difficult near-ties and invite disagreement metadata instead of forcing false certainty. Track population and domain differences; otherwise a preference dataset collected from one language or use case may push a model toward the wrong style elsewhere.",
+        "The classical RLHF pipeline trains a reward model from pairwise comparisons, then updates the policy to earn high predicted rewards subject to a distance penalty from a reference policy. A typical schematic objective is E[r_phi(x,y)] - beta KL(pi_theta(.|x) || pi_ref(.|x)). The KL regularizer discourages the updated distribution from drifting arbitrarily far. Yet a reward predictor is imperfect. Pushing excessively hard can exploit shortcuts in that predictor—verbose answers may be scored favorably even when concise answers would better serve users. This is an instance of optimizing a proxy rather than the actual task.",
+        "Direct Preference Optimization (DPO) offers a different training formulation based on paired preference likelihoods. For a chosen y_w and rejected y_l, define the advantage-like log-ratio margin delta = [log pi_theta(y_w|x) - log pi_theta(y_l|x)] - [log pi_ref(y_w|x) - log pi_ref(y_l|x)]. The per-pair DPO loss is -log sigmoid(beta * delta), equivalently log(1 + exp(-beta*delta)). Because sequence probabilities are products of token conditionals, implement each sequence log probability as a sum of token log probabilities under a consistent masking convention. Treat prompt tokens and padding consistently, and avoid comparing systems with different tokenization assumptions without care.",
+        "Work one number through the equation. Suppose the policy log probabilities for the preferred and rejected completions are -2.0 and -3.0, while the reference assigns -2.5 and -2.7. The policy gap is 1.0, the reference gap is 0.2, so delta=0.8. At beta=0.5, the argument to sigmoid is 0.4. The probability sigma(0.4) is about 0.5987 and the DPO loss is about 0.5130. If the policy's relative preference is unchanged from reference, delta=0 and the loss equals log 2, about 0.6931. This helps explain why merely seeing lower loss does not prove improved correctness or safety; the objective is about fitting the supplied preference pairs.",
+        "Preference objectives have characteristic failure modes. Annotators may favor longer, more agreeable or more confident responses regardless of evidence. Training pairs may entangle undesirable attributes, such as helpfulness and policy compliance, so the model learns to refuse too often. Some tasks demand deterministic correctness: a calculation can be wrong even if a polished explanation is preferred. Assess the resulting model on held-out task success, calibration, truthfulness, privacy cases and regression slices; do not use the same preference labels to both tune and pronounce success. For safety-sensitive actions, preference reward cannot grant tool authority. Enforce access checks and approval gates outside model outputs.",
+        "Evaluation and alignment therefore form a coupled engineering loop. Collect pairwise labels with clear provenance and inter-annotator disagreement, train a candidate, run an independently sampled evaluation suite, diagnose regressions and only then consider deployment. Use offline preference evaluation plus online guardrails and canary monitoring; watch for distribution shifts where users respond differently from annotators. State precisely what your chosen beta means in your implementation, since papers and libraries can differ in scaling and loss conventions. The goal is not to maximize preference score in isolation; it is to improve verified user outcomes while respecting non-negotiable constraints."
+      ],
+      "examples": [
+        {
+          "title": "Derive and verify a DPO loss numerically",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "The favored answer has log likelihood -2.0 under the policy and -2.5 under the reference; the rejected answer has -3.0 and -2.7 respectively. First subtract the rejected from the favored values inside each model: 1.0 for the policy and 0.2 for reference. Subtract again to obtain delta=0.8. With beta 0.5, the positive margin is 0.4 and its stable logistic loss is log(1+exp(-0.4))≈0.5130. A tiny change in the signs of these subtractions reverses the optimization direction, so create assertions for zero, positive and negative margins. The stable softplus formulation avoids overflow for extreme scores. This toy uses whole-completion log probabilities already summed across non-prompt tokens."
+            },
+            {
+              "type": "code",
+              "text": "from math import exp, log1p, log\n\ndef dpo_loss(p_win, p_lose, ref_win, ref_lose, beta):\n    delta = (p_win - p_lose) - (ref_win - ref_lose)\n    z = -beta * delta\n    return max(z, 0) + log1p(exp(-abs(z)))\n\nloss = dpo_loss(-2.0, -3.0, -2.5, -2.7, 0.5)\nassert abs(loss - 0.5130152524) < 1e-8\nassert abs(dpo_loss(-2,-3,-2,-3,0.5) - log(2)) < 1e-12\nassert dpo_loss(-3,-2,-2,-3,0.5) > log(2)\nprint(round(loss, 6))"
+            }
+          ]
+        },
+        {
+          "title": "Preference win-rate that hides factual regression",
+          "walkthrough": "A candidate wins 60 out of 100 blinded pairwise comparisons, yet its exact-answer accuracy drops from 91% to 86% and its privacy safety suite detects a new leak. That pattern is possible when annotators reward tone or verbosity more than correctness. First inspect rubric alignment and compare outcomes on the same requests; then stratify by factual versus creative tasks. A higher win rate should not override a factual-accuracy floor or a critical privacy gate. If the preference labels disproportionately came from marketing copy prompts but deployment is a technical support environment, the learning objective is mismatched to the production task. Specify targeted data collection and test changes rather than tuning beta until a single aggregate score looks favorable."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Preference labels",
+          "narration": "Pairs express a preference under a stated rubric, not an automatic proof of truth.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Prompt + candidates",
+              "Annotator + rubric",
+              "Chosen versus rejected"
+            ]
+          }
+        },
+        {
+          "title": "DPO margin",
+          "narration": "DPO compares the policy preference gap against a frozen reference model.",
+          "visual": {
+            "type": "equation",
+            "text": "delta = (log p_w - log p_l) - (log r_w - log r_l)"
+          }
+        },
+        {
+          "title": "Guard against proxy gaming",
+          "narration": "A larger preference win-rate can coincide with worse factual accuracy.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "Baseline accuracy",
+                "value": 91
+              },
+              {
+                "label": "Candidate accuracy",
+                "value": 86
+              },
+              {
+                "label": "Candidate win-rate",
+                "value": 60
+              }
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Preference objective failure-mode experiment",
+        "instructions": "Create 12 synthetic preference pairs with log probabilities for policy and reference. Compute stable DPO loss and validate gradients by finite differences for at least one pair. Introduce labels that prefer longer but factually wrong outputs. Report mean loss and separate held-out factual accuracy; vary beta and explain why lower training loss does not settle release suitability.",
+        "success": "A reproducible test prints DPO losses, verifies finite difference signs and identifies a regression that an aggregate preference score would miss."
+      },
+      "pitfalls": [
+        "Treating preference labels as objective truth without a rubric",
+        "Confusing beta-scaled preference margin with raw win percentage",
+        "Using prompt tokens or padding inconsistently in log probability sums",
+        "Reward hacking via verbosity or excessive agreement",
+        "Allowing model preference to override authorization policy"
+      ],
+      "questions": [
+        {
+          "prompt": "For DPO with policy gap 1.0 and reference gap 0.2, what is delta?",
+          "choices": [
+            "The margin equals 0.2",
+            "The margin equals 1.2",
+            "The margin equals 0.8",
+            "The margin equals 2.0"
+          ],
+          "answer": 2,
+          "reason": "delta equals the policy preferred-minus-rejected log gap minus the reference gap: 1.0 - 0.2 = 0.8."
+        },
+        {
+          "prompt": "Why can a higher preference win rate fail to justify a deployment?",
+          "choices": [
+            "It always implies a lower latency and cost",
+            "It makes withheld test cases unnecessary",
+            "It automatically verifies safety of every tool",
+            "It can coexist with worse factual and privacy outcomes"
+          ],
+          "answer": 3,
+          "reason": "A preference rubric is a proxy. Ground-truth accuracy and hard safety gates must be evaluated separately."
+        },
+        {
+          "prompt": "Which practice best reduces overoptimization of a learned proxy reward?",
+          "choices": [
+            "Retest held-out outcomes and enforce hard constraints",
+            "Train until the preference score is perfectly maximal",
+            "Remove dissenting annotators before optimization",
+            "Permit the reward model to grant tool permissions"
+          ],
+          "answer": 0,
+          "reason": "Independent task evaluation and explicit constraints reveal misalignment that increasing proxy score may hide."
+        }
+      ],
+      "resources": [
+        {
+          "title": "Direct Preference Optimization (Rafailov et al., 2023)",
+          "url": "https://arxiv.org/abs/2305.18290"
+        },
+        {
+          "title": "Training language models to follow instructions with human feedback (Ouyang et al., 2022)",
+          "url": "https://arxiv.org/abs/2203.02155"
+        },
+        {
+          "title": "Deep reinforcement learning from human preferences (Christiano et al., 2017)",
+          "url": "https://arxiv.org/abs/1706.03741"
+        }
+      ],
+      "evidence_note": "Primary paper links are provided as bibliographic anchors, not live link validation in this run. The DPO identity is based on the standard pairwise formulation and the numeric result is verified using executed Python; the deployment outcomes are constructed teaching examples.",
+      "challenge": "Propose a preference-data collection campaign for an enterprise assistant with citation and permission requirements. Design annotator instructions, disagreement handling, a DPO objective, beta experiments and a held-out regression suite. Explain how you would detect sycophancy and verbosity bias, and what results would cause you to reject a candidate despite a higher preference win rate."
+    }
+  ]
+}

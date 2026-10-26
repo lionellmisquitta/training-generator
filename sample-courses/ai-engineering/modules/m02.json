@@ -1,0 +1,252 @@
+{
+  "title": "Learning Systems",
+  "lessons": [
+    {
+      "title": "Optimization, Backpropagation and Generalization",
+      "status": "generated",
+      "objectives": [
+        "Derive gradients for a small computational graph and check with finite differences",
+        "Implement gradient descent and distinguish training improvement from generalization"
+      ],
+      "hook": "A neural model can fit its training examples and still fail on real inputs. To understand why, we will derive exactly how a loss depends on its weights, implement a gradient check, and then examine what validation performance tells us that training loss cannot.",
+      "explanation": [
+        "Training a model means choosing parameters that reduce a precisely defined loss on observed examples. Start with a prediction z = wx + b and a squared-error objective L = (z - y)^2 / 2 for one observation. The prediction is a function of w and b, so its loss is also a function of both. The derivative with respect to the prediction is dL/dz = z-y; the derivative of z with respect to w is x; therefore the chain rule gives dL/dw = (z-y)x. Likewise dL/db = z-y. This is reverse-mode automatic differentiation in miniature: pass values forward, then propagate local derivatives backward. A neural network's additional layers make the graph larger but do not change the basic rule. Parameter gradients are accumulated contributions from every path through which a parameter influences the output.",
+        "For a batch of n examples, mean loss is the sum of per-example losses divided by n. When we minimize that batch mean, the gradient is also the mean of the example gradients. Gradient descent updates a parameter by subtracting learning_rate times its gradient. A learning rate of 0.1 does not imply ten-percent progress: gradient magnitude depends on data scale, current parameters, and loss definition. With a sufficiently large rate, an update may jump across the minimum and increase loss, sometimes diverging. With a very small rate, many iterations may be needed. Momentum keeps a running direction from previous gradients; Adam adjusts per-parameter step sizes using gradient moments. Neither optimizer eliminates the need to inspect the loss curve and evaluate on held-out examples.",
+        "The crucial distinction is between optimization and generalization. Optimizing an empirical loss measures fit to the training sample; generalization concerns errors on future examples from the target population. A complex model can memorize noise, leakage or individual examples, giving a low training loss and a much worse validation loss. Regularization, restricted capacity, more representative data, and early stopping can mitigate this; none is a guarantee when the evaluation data are compromised. A validation set guides model choice, whereas the untouched test set estimates performance after the choice has been made. Repeated test-set peeking quietly turns the test set into a second validation set.",
+        "Gradient checking detects a different kind of failure: incorrect backpropagation implementation. Replace an analytic derivative at parameter w with a central finite difference [L(w+epsilon)-L(w-epsilon)]/(2 epsilon), using a small perturbation such as 1e-5 in double precision. Compare these, preferably with a relative error scaled to the derivative magnitudes. At very small epsilon, floating-point cancellation dominates; at very large epsilon, truncation error dominates. This check validates derivative code locally, not whether the data or objective make sense. A perfect gradient can optimize the wrong task remarkably efficiently.",
+        "To decide whether an optimizer is behaving well, log both gradient norms and parameter-update magnitudes. For the linear example, a parameter update is meaningful only relative to the feature scale and the range of predictions. In deeper networks, exploding gradients can destabilize updates, while vanishing gradients can make early layers learn slowly. Gradient clipping limits the update signal when its norm crosses a threshold, but it changes the dynamics rather than correcting an incorrect architecture. A practical debugging sequence is to overfit a tiny clean batch first, confirm that loss falls, compare analytic and numerical gradients on selected small parameters, then grow the dataset and inspect validation curves. If the tiny batch cannot be fitted, suspect code, labels, or optimization before hyperparameter search. If training succeeds but validation fails, investigate generalization, sampling and leakage before training longer. Neither outcome should be hidden behind a single final accuracy number.",
+        {
+          "type": "code",
+          "text": "def loss(w, b, x=2.0, y=5.0):\n    return 0.5 * (w*x + b - y)**2\n\ndef analytic(w, b, x=2.0, y=5.0):\n    error = w*x + b - y\n    return error*x, error\n\ndef finite_diff(w, b, eps=1e-5):\n    return ((loss(w+eps,b)-loss(w-eps,b))/(2*eps),\n            (loss(w,b+eps)-loss(w,b-eps))/(2*eps))\n\nw, b = 1.0, 0.0\nassert all(abs(u-v) < 1e-6 for u,v in zip(analytic(w,b),finite_diff(w,b)))\ngw, gb = analytic(w,b)\nw -= 0.1*gw\nb -= 0.1*gb\nassert abs(loss(w,b)-1.125) < 1e-12\nprint(w,b,loss(w,b))"
+        },
+        "The important operational habit is to trace a failure back to the class of evidence that can actually resolve it. A derivative mismatch requires a gradient test. A loss plateau requires optimization diagnostics. A production mismatch requires representative holdout evaluation and investigation of shifts in incoming data. Do not confuse these diagnoses merely because all three eventually appear as a disappointing performance number."
+      ],
+      "examples": [
+        {
+          "title": "A complete gradient calculation",
+          "walkthrough": "Use x=2, y=5, w=1 and b=0. The forward pass yields z = 1*2+0 = 2, so the residual is -3 and the half-squared loss is 4.5. Now reverse the graph: dL/dz = -3, dz/dw = 2 and dz/db = 1. Therefore dL/dw = -6 and dL/db = -3. A gradient step with rate 0.1 produces w=1.6 and b=0.3. The new prediction is 3.5 and the new loss is (3.5-5)^2/2 = 1.125. Check both changes, not merely whether a Python script prints a smaller number. The reduction is expected here but does not imply that the same rate is stable for all feature scales or all training samples."
+        },
+        {
+          "title": "Why a gradient check is not a generalization check",
+          "walkthrough": "Imagine a regression model that includes a unique customer identifier encoded as an enormous lookup table. It can perfectly memorize training targets. Compute its gradients numerically and analytically: both may agree, so the implementation check passes. Yet a new customer identifier offers no meaningful lookup and predictions can be poor. The experiment illustrates two non-interchangeable claims. A gradient check asks whether the derivative of a chosen objective is computed correctly for a chosen input. A held-out evaluation asks whether the resulting model predicts cases it did not train on. Neither answer substitutes for the other. In a production project, check gradients at development time and separately evaluate a representative time-based or entity-disjoint holdout."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Forward computation",
+          "narration": "Calculate prediction, residual, then squared loss before any gradient is taken",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "x=2, w=1, b=0",
+              "z=2",
+              "residual=-3",
+              "loss=4.5"
+            ]
+          }
+        },
+        {
+          "title": "Backward propagation",
+          "narration": "Follow the local chain derivatives to calculate parameter gradients",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "dL/dz=-3",
+              "dL/dw=-6",
+              "dL/db=-3"
+            ]
+          }
+        },
+        {
+          "title": "Parameter update",
+          "narration": "Subtract a tenth of each gradient and verify the new loss using a fresh forward pass",
+          "visual": {
+            "type": "equation",
+            "text": "w=1.6, b=0.3; new loss=1.125"
+          }
+        }
+      ],
+      "lab": {
+        "title": "Numerical gradient versus chain-rule gradient",
+        "instructions": "Implement a pure Python function loss(w,b,x,y) for half-squared error. At x=2, y=5, w=1, b=0 calculate analytic gradients and central-difference gradients with epsilon 1e-5. Test at least three other parameter values, including one where the residual is zero. Assert absolute differences below 1e-6 for these small numbers. Then perform one gradient step and recompute the loss; explain why one successful step does not prove generalization.",
+        "success": "Both gradient methods agree within tolerance for the chosen finite values, and the example update reduces the loss."
+      },
+      "pitfalls": [
+        "The derivative of half-squared error omits the factor of two only because the loss contains one half.",
+        "A numerically correct derivative does not establish that the target labels are meaningful or free of leakage.",
+        "A lower training loss is not evidence of better performance on unseen records."
+      ],
+      "questions": [
+        {
+          "prompt": "At x=2, y=5, w=1, b=0 for half-squared error, what is dL/dw?",
+          "choices": [
+            "-3",
+            "6",
+            "-12",
+            "-6"
+          ],
+          "answer": 3,
+          "reason": "Residual is -3; multiply by input x=2 to obtain -6."
+        },
+        {
+          "prompt": "What property is most directly checked by a finite-difference gradient comparison?",
+          "choices": [
+            "Derivative implementation correctness",
+            "Model generalization",
+            "Training dataset representativeness",
+            "Whether the model architecture is fair"
+          ],
+          "answer": 0,
+          "reason": "Numerical differences approximate local derivatives; they do not evaluate out-of-sample performance."
+        },
+        {
+          "prompt": "After a gradient step of 0.1 from w=1, b=0 in the worked example, what loss results?",
+          "choices": [
+            "4.5",
+            "1.125",
+            "2.25",
+            "0"
+          ],
+          "answer": 1,
+          "reason": "Updated w=1.6 and b=0.3 yield prediction 3.5, residual -1.5 and loss 1.125."
+        }
+      ],
+      "challenge": "Extend this derivation to a two-parameter model with z = w1*x1 + w2*x2 + b and two observations. Derive the average-loss gradient analytically, implement a gradient check and investigate how multiplying one feature by 1,000 changes a fixed learning rate. Explain which observation would establish generalization instead of merely optimization.",
+      "resources": [
+        {
+          "title": "Stanford CS231n optimization and backpropagation",
+          "url": "https://cs231n.stanford.edu/schedule"
+        },
+        {
+          "title": "Google ML Crash Course",
+          "url": "https://developers.google.com/machine-learning/crash-course/"
+        }
+      ],
+      "evidence_note": "Suggested primary reading: Stanford CS231n optimization and backpropagation, Google ML Crash Course. URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    },
+    {
+      "title": "Data Splitting and Leakage",
+      "status": "generated",
+      "objectives": [
+        "Choose splitting units and chronology that match the deployment prediction task",
+        "Detect leakage through preprocessing, duplicate entities and post-outcome features"
+      ],
+      "hook": "Suppose a risk model scores 98 percent accuracy during testing but collapses on the first day of deployment. The culprit may not be the model: its evaluation boundary could allow information from the future, duplicate customers, or target-derived features to cross into training.",
+      "explanation": [
+        "A data split is a claim about which information will be available when the system makes a future prediction. Random rows are only an appropriate splitting unit when observations are sufficiently independent and identically distributed for the intended use. In an employee attrition model, rows from the same employee over multiple months share stable characteristics. If months from one employee appear in training and test, the model can recognize that employee without predicting genuinely unseen people. If deployment predicts new employees, separate by employee identifier. If deployment predicts next quarter for existing employees, separate chronologically and ensure every feature was known at the earlier prediction time. The validation method must simulate the decision that the real system will make.",
+        "Leakage occurs whenever information from outside the permitted training boundary influences fitted parameters, preprocessing, labels, or model selection. A vivid example is a feature named termination_completed_at when the prediction target is employee termination in the next ninety days; it is unavailable at scoring time and encodes the outcome. Less obvious leakage arises when a global average, vocabulary, target encoding or imputation statistic is estimated from the entire dataset before the split. Although this step may appear unsupervised, it still carries information from test records into the training pipeline. Fit transformations only on training data and apply the fitted transformation unchanged to validation and test data.",
+        "For time series, use an explicit observation cutoff and a prediction horizon. Suppose events through September 30 are available to predict whether an invoice will be late in October. Labels derived from November collections cannot be included in September features, regardless of what timestamps exist in a database export produced in December. Maintain an event_time (when something happened) and availability_time (when your system could have known it). Late-arriving updates make those two distinct. A strict point-in-time feature join respects availability_time as of the prediction timestamp. A gap or embargo around the split boundary may be needed when outcomes span intervals or nearby examples share an event.",
+        "Use training data for fitting parameters and preprocessing, validation data for selecting hyperparameters and thresholds, and a reserved test set for the final unbiased estimate. If a team repeatedly looks at test results to decide changes, the test loses its independent role. A low validation loss from a leaked or unrealistic split is not reassurance; inspect data lineage, duplicates and time boundaries before trusting any number. Document the intended deployment population, the sampling unit, class prevalence, missing values, and data drift. Even an impeccable split can fail to represent a new geography or a policy change, so production monitoring remains necessary.",
+        "An auditable pipeline makes the split boundary reproducible. Assign every observation a stable row identifier and record the exact exclusion rule, cutoff, label horizon, and feature materialization timestamp. Construct the holdout first, then fit imputation, encoding, vocabulary, scaling and model weights only on the allowed training partition. When tuning, a validation partition can be used repeatedly, but record each candidate and avoid claiming that the best of hundreds of attempts has an unbiased validation score. In time-ordered problems, use a sequence of historical cutoffs, train only before each cutoff, and score a later window, rather than relying on one convenient random shuffle. If training labels take ninety days to mature, do not train using outcomes that would have been unknown at that historical cutoff. Keep a final untouched period for a single evaluation of the selected pipeline. A leakage audit is a data-lineage exercise before it is an algorithm exercise.",
+        {
+          "type": "code",
+          "text": "# Minimal split and preprocessing example: no external libraries\nrows = [\n    {\"id\": \"a\", \"time\": 1, \"feature\": 1.0},\n    {\"id\": \"b\", \"time\": 2, \"feature\": 2.0},\n    {\"id\": \"c\", \"time\": 3, \"feature\": 3.0},\n    {\"id\": \"d\", \"time\": 4, \"feature\": 4.0},\n    {\"id\": \"e\", \"time\": 5, \"feature\": 100.0},\n]\ntrain = [r for r in rows if r[\"time\"] <= 4]\ntest = [r for r in rows if r[\"time\"] > 4]\nmean = sum(r[\"feature\"] for r in train)/len(train)\ntransformed_test = [r[\"feature\"]-mean for r in test]\nassert mean == 2.5\nassert transformed_test == [97.5]\nprint(transformed_test)"
+        },
+        "One final trap is training-serving skew: a feature constructed correctly in a historical notebook may be assembled differently by the real-time scoring service. Validate the exact feature definition and availability in both paths, including missing-value handling, entity identifiers, and timezone semantics. A trustworthy offline evaluation must approximate what the live service will know at the instant a decision is made."
+      ],
+      "examples": [
+        {
+          "title": "Spot an outcome-derived feature",
+          "walkthrough": "An HR dataset contains employee_id, role, months_at_company, resignation_filed_date, and left_within_90_days. The business question is: at the start of each month, who might leave within the following ninety days? resignation_filed_date often becomes known only after a resignation, so including it at an earlier prediction timestamp creates target leakage. Evaluate each feature using a precise availability test: could the scoring service have queried this value at the start-of-month instant? Drop or reconstruct features that fail. If each employee contributes many monthly rows, choose a held-out employee split for new-employee generalization. For next-month prediction on existing employees, prefer a chronological rolling-origin split and validate that features are assembled point-in-time."
+        },
+        {
+          "title": "Why fitting a scaler before splitting is unsafe",
+          "walkthrough": "Consider four training feature values 1,2,3,4 and one held-out observation 100. If a mean-centering transformer is fitted only on training data, the mean is (1+2+3+4)/4 = 2.5; the transformed test value is 97.5. If preprocessing incorrectly pools all five values first, the mean is 22, and the test value becomes 78. Both are numerically valid transformations, but the latter fitted statistic used the supposedly unseen record. This toy example makes the boundary visible. The difference is not that 97.5 is inherently better than 78; it is that only the training-fitted transformation reproduces the information available at model-training time. Maintain a reproducible pipeline that separately fits and transforms."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Choose a boundary",
+          "narration": "Identify which individuals or timestamps future scoring will see",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Prediction question",
+              "Scoring instant",
+              "Unit of independence",
+              "Train/validation/test split"
+            ]
+          }
+        },
+        {
+          "title": "Inspect feature availability",
+          "narration": "Compare event occurrence with the point when a record was observable",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Event time",
+              "Availability time",
+              "Prediction cutoff",
+              "Leakage test"
+            ]
+          }
+        },
+        {
+          "title": "Fit without peeking",
+          "narration": "Train preprocessing exclusively on training rows and reuse those parameters",
+          "visual": {
+            "type": "equation",
+            "text": "train mean = 2.5; held-out 100 becomes 97.5"
+          }
+        }
+      ],
+      "lab": {
+        "title": "Leakage audit and point-in-time split",
+        "instructions": "Create a small table with employee_id, month, features, prediction_timestamp, feature_available_at and outcome. Include a deliberate leaked feature whose availability is after prediction_timestamp, and an employee whose rows appear in multiple months. Implement or manually tabulate one random-row split, one employee-disjoint split and one chronological split. Identify which deployment question each split approximates. Fit a scaler on training rows only and compare its held-out transform with a deliberately contaminated global scaler.",
+        "success": "An audit names every leaked feature and explains the correct splitting unit for each target deployment question."
+      },
+      "pitfalls": [
+        "Random train-test splitting is not universally unbiased when observations share customers or time-dependent outcomes.",
+        "A feature can leak the future even when its event date is earlier than the exported data file date.",
+        "Preprocessing on the full dataset leaks distributional information, even without access to labels."
+      ],
+      "questions": [
+        {
+          "prompt": "A model predicts new customers, but rows from the same customers exist in both training and test. What split best addresses this?",
+          "choices": [
+            "Random row splitting",
+            "Shuffling all target labels",
+            "Disjoint customer splitting",
+            "Repeating the test evaluation"
+          ],
+          "answer": 2,
+          "reason": "Disjoint customers test generalization to unseen customer identities."
+        },
+        {
+          "prompt": "For training values 1,2,3,4, what is held-out value 100 after subtracting the train-only mean?",
+          "choices": [
+            "78",
+            "95",
+            "100",
+            "97.5"
+          ],
+          "answer": 3,
+          "reason": "The mean of the four training values is 2.5, so 100-2.5=97.5."
+        },
+        {
+          "prompt": "A feature is written to storage one day after the prediction timestamp. What is the central risk?",
+          "choices": [
+            "The feature is unavailable at prediction time",
+            "Weight decay becomes too high",
+            "The feature contains too few categories",
+            "The dataset is too small"
+          ],
+          "answer": 0,
+          "reason": "The availability timestamp, not merely the event timestamp, governs whether the feature can legitimately be used."
+        }
+      ],
+      "challenge": "Design a reliable evaluation for an accounts-receivable late-payment predictor. Specify a prediction timestamp, target interval, entity grouping and data-availability rules. Give a counterexample demonstrating how a post-payment invoice status or globally fitted target encoding would leak. Explain how you would preserve the final test set while tuning thresholds.",
+      "resources": [
+        {
+          "title": "Google ML Crash Course: Dividing datasets",
+          "url": "https://developers.google.com/machine-learning/crash-course/overfitting/dividing-datasets"
+        },
+        {
+          "title": "Stanford CS231n curriculum",
+          "url": "https://cs231n.stanford.edu/schedule"
+        }
+      ],
+      "evidence_note": "Suggested primary reading: Google ML Crash Course: Dividing datasets, Stanford CS231n curriculum. URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    }
+  ]
+}

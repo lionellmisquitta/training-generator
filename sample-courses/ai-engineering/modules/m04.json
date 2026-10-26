@@ -1,0 +1,380 @@
+{
+  "title": "Transformers",
+  "lessons": [
+    {
+      "title": "Scaled Dot-Product Attention",
+      "status": "generated",
+      "objectives": [
+        "Derive QK transpose scaling and output shapes",
+        "Implement row-wise causal softmax safely",
+        "Explain mask and precision failure modes"
+      ],
+      "hook": "The attention operation is often presented as one line of matrix algebra, yet production bugs hide in its shapes, masks, and normalization. We will build a numerical attention head from first principles, prove what the weights mean, and test a deliberately masked input whose future tokens must never influence an earlier prediction.",
+      "explanation": [
+        "Let token representations be X with shape (T,d_model), and let learned projections W_Q, W_K and W_V produce Q of shape (T,d_k), K of shape (T,d_k), and V of shape (T,d_v). The matrix QK^T contains one compatibility score per ordered pair of query and key positions: shape (T,T). Multiplying its row-softmax weights by V yields an output (T,d_v). Each row of attention weights sums to one on allowed positions, but that does not mean weights directly encode human-readable explanations of a model decision. They represent one computational routing stage that downstream layers can transform or ignore. For minibatches and heads, keep batch and head dimensions explicit rather than assuming a single matrix.",
+        "Scale dot products by 1/sqrt(d_k). If unscaled independent query and key coordinates have zero mean and unit variance, their sum of d_k products has variance roughly d_k under simplifying assumptions. Large logit magnitudes push softmax toward saturation and can make derivatives small. Scaling makes logit spread less sensitive to key dimension, although trained representations will not satisfy independent unit-variance assumptions exactly. Softmax must be computed over the KEY axis separately for each query; normalizing columns instead changes the operation. For numerical stability, subtract the maximum permitted score in each row before exponentiation; this preserves probabilities algebraically.",
+        "Autoregressive training applies a causal mask M where M_ij is zero if key j is visible to query i and negative infinity otherwise. The first query sees only the first key; the third query sees the first three. In a full training forward pass, causal masking allows parallel evaluation of all positions without leaking later token content. Padding masks are a separate concern: they prevent aggregation from positions that only serve to equalize batch lengths. A common error is to mask the query dimension rather than key positions. Another is to feed a row in which every key is masked into naïve softmax, producing undefined 0/0 after shifting negative infinities. Define explicit behavior or exclude invalid queries.",
+        "Consider one query q=(1,0) and two keys k1=(1,0), k2=(0,1), with d_k=2. The scaled logits are 1/sqrt(2) and zero; their exponentials are about 2.028 and 1. Thus the first weight is about 0.670 and second about 0.330. If corresponding values are v1=(2,0) and v2=(0,4), the output is approximately (1.340,1.320). This weighted value sum is not itself a selected token; it is a continuous representation. A sharp distribution can approximate selection, while a diffuse one blends many value vectors. Changing values without changing keys changes the mixture but not the attention probabilities.",
+        "Attention is quadratic in sequence length for the explicit score matrix: T by T per head, though optimized kernels avoid materializing that entire matrix and exploit IO-efficient tiling. Computational cost and memory cost are not the same metric. A naïve implementation using NumPy is ideal for auditing semantics but is not the recommended high-throughput production implementation. Verify masks with counterfactual testing: change only future input tokens and assert earlier causal outputs remain unchanged. Verify softmax row sums and all-finite outputs using multiple shapes. These tests catch wrong axes and accidental future leakage more effectively than a single happy-path numerical example.",
+        "For reproducible debugging, compare an optimized implementation against a plain reference on the same inputs and masks. Record both the dtype and the numerical tolerance; floating-point operation order can change results slightly without violating the attention contract. Test gradients separately, because matching forward outputs does not establish correct backward propagation through masking and softmax.",
+        "Finally, keep causal self-attention distinct from encoder bidirectional attention and cross-attention. In a bidirectional encoder, a query may use both earlier and later keys. In cross-attention, queries and keys can have different sequence lengths, producing a rectangular compatibility matrix. A mask is therefore a policy on allowed query-key pairs, not an inherent property of softmax. The same algebra serves different modeling problems, and shape assertions should reflect the selected mechanism rather than blindly demand square matrices.",
+        {
+          "type": "code",
+          "text": "import numpy as np\n\ndef attention(q, k, v, causal=False):\n    q, k, v = map(lambda z: np.asarray(z, dtype=np.float64), (q, k, v))\n    assert q.ndim == k.ndim == v.ndim == 2\n    assert q.shape[1] == k.shape[1] and k.shape[0] == v.shape[0]\n    logits = q @ k.T / np.sqrt(q.shape[1])\n    if causal:\n        assert q.shape[0] == k.shape[0]\n        logits = np.where(np.tril(np.ones(logits.shape, dtype=bool)), logits, -np.inf)\n    logits -= logits.max(axis=-1, keepdims=True)\n    weights = np.exp(logits)\n    weights /= weights.sum(axis=-1, keepdims=True)\n    return weights @ v, weights\n\nq=np.array([[1.,0.],[0.,1.],[1.,1.]])\nv=np.array([[2.,0.],[0.,4.],[1.,3.]])\nout,w=attention(q,q,v,causal=True)\nassert np.allclose(w.sum(axis=1),1)\nassert np.allclose(np.triu(w,1),0)\nchanged=q.copy(); changed[-1]=[50.,-10.]\nout2,_=attention(changed,changed,v,causal=True)\nassert np.allclose(out[:2],out2[:2])\nprint('causal invariance PASS',w)"
+        }
+      ],
+      "examples": [
+        {
+          "title": "Two-key weighted value calculation",
+          "walkthrough": "Set a single query equal to (1,0), with keys (1,0) and (0,1). Compute the two dot products, divide each by square root of two, subtract the larger scaled score for stability, and exponentiate. The resulting probability of the first key is about 0.670. Multiply the first value vector (2,0) by that weight, and the second (0,4) by the complement. The final representation is about (1.340,1.320). If the raw logits had been normalized along a different axis, the probabilities would not describe a distribution over keys for this query. This hand calculation gives a compact independent oracle for the implementation."
+        },
+        {
+          "title": "Causal masking as a noninterference test",
+          "walkthrough": "Create a three-token sequence and make query, key, and value arrays. In a causal layer, the representation at position zero must be unchanged when positions one and two are altered, and the representation at position one must be unchanged when position two is altered. Calculate a lower triangular visibility matrix and put negative infinity at forbidden locations before softmax. The final row may depend on every position, but earlier rows are barred from seeing the future. Importantly, test with changed keys AND changed values: modifying only the query can accidentally miss a future-value leakage bug. This is stronger than checking that a numerical matrix happens to be lower triangular."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Query-key geometry",
+          "narration": "Compare how one query scores two keys before any normalization.",
+          "visual": {
+            "type": "equation",
+            "text": "scores = Q K^T / sqrt(d_k)"
+          }
+        },
+        {
+          "title": "Probability over allowed keys",
+          "narration": "Observe each query row forms a distribution over visible keys.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "key 1",
+                "value": 67
+              },
+              {
+                "label": "key 2",
+                "value": 33
+              }
+            ]
+          }
+        },
+        {
+          "title": "Causal noninterference",
+          "narration": "Follow the permitted left-to-right dependency as the sequence grows.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Token 1 -> 1",
+              "Token 2 -> 1,2",
+              "Token 3 -> 1,2,3"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Inspect attention invariants",
+        "instructions": "Run the NumPy function for three different sequence lengths and key dimensions. Assert each nonempty attention row sums to one, the upper triangle is zero under causal masking, and perturbing a future key and value leaves all earlier outputs unchanged. Include a case with unusually large input magnitude to exercise stable softmax.",
+        "success": "All causal noninterference assertions pass and all computed attention probabilities are finite and normalized."
+      },
+      "pitfalls": [
+        "Softmax over the wrong axis gives plausible-looking but incorrect weights.",
+        "Using -1e9 masking without considering dtype and fully masked rows can hide invalid behavior.",
+        "Attention weights are not a reliable standalone explanation of predictions."
+      ],
+      "questions": [
+        {
+          "prompt": "For Q shape (5,8), K shape (7,8), and V shape (7,16), what is the output shape without a causal mask?",
+          "choices": [
+            "(7,16)",
+            "(5,16)",
+            "(5,7)",
+            "(8,16)"
+          ],
+          "answer": 1,
+          "reason": "The score matrix is 5 by 7 and multiplies a 7 by 16 value matrix, yielding 5 by 16."
+        },
+        {
+          "prompt": "Why divide query-key dot products by square root of key dimension?",
+          "choices": [
+            "To enforce uniform weights",
+            "To avoid using masks",
+            "To reduce logit variance growth in a simplified independent-coordinate model",
+            "To normalize V directly"
+          ],
+          "answer": 2,
+          "reason": "Without scaling, sum-of-products variance grows with dimension under the stated simplifying assumptions."
+        },
+        {
+          "prompt": "Which change must leave query zero output unchanged in causal attention?",
+          "choices": [
+            "Changing token zero value",
+            "Changing token zero query",
+            "Changing token zero mask policy",
+            "Replacing a future token key and value"
+          ],
+          "answer": 3,
+          "reason": "A causal first query cannot aggregate any key/value content from later tokens."
+        }
+      ],
+      "resources": [
+        {
+          "title": "Attention Is All You Need (Vaswani et al., 2017)",
+          "url": "https://arxiv.org/abs/1706.03762"
+        },
+        {
+          "title": "The Annotated Transformer",
+          "url": "https://nlp.seas.harvard.edu/annotated-transformer/"
+        }
+      ],
+      "challenge": "Extend the implementation to rectangular cross-attention by allowing query and key lengths to differ. Construct a query-key mask of compatible shape and raise a descriptive error on fully masked rows. Record shape assertions, a numerical expected value, and a test showing one intentionally forbidden key cannot alter its masked output.",
+      "evidence_note": "Suggested primary reading: Attention Is All You Need (Vaswani et al., 2017), The Annotated Transformer. URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    },
+    {
+      "title": "Positional Information and Multi-Head Attention",
+      "status": "generated",
+      "objectives": [
+        "Explain permutation symmetry of attention without position",
+        "Trace positional representations and head shapes",
+        "Identify why multiple heads do not guarantee different learned roles"
+      ],
+      "hook": "Imagine shuffling the words of a sentence while keeping the same token vectors. A bare self-attention layer without position information cannot tell which arrangement came first. To engineer sequence models, we need an explicit representation of order, plus a disciplined way to split, route, and recombine multiple attention heads.",
+      "explanation": [
+        "Bare self-attention computed from token embeddings is permutation equivariant: if P is a permutation matrix reordering tokens, replacing X with PX reorders Q, K, and V consistently, so attention(PX) = P attention(X) when no order-sensitive mask is applied. Permutation equivariance is not position awareness. A language task such as distinguishing “dog bites man” from “man bites dog” cannot rely solely on an unordered bag of token identities. Positional information breaks this ambiguity by providing a signal connected to token index or relative distance. A causal mask also introduces an order-dependent visibility relation, but it is not a complete substitute for all positional information in typical language-model designs.",
+        "One classic solution adds a positional encoding vector p_i to the token embedding x_i before projection. In the original Transformer, a sinusoidal encoding assigns alternating sine and cosine channels at different frequencies. For even channel index 2j, PE(i,2j)=sin(i/10000^(2j/d_model)); for odd channel 2j+1, PE(i,2j+1)=cos(i/10000^(2j/d_model)). These formulas require treating j as a zero-based frequency pair index; the exponent is not based on the absolute channel index twice. The resulting representation uses a combination of slow and fast positional variation. Different approaches learn absolute positions, add pairwise relative biases to logits, or rotate Q and K based on positions. They differ in extrapolation behavior and invariances, so do not equate their names.",
+        "Multi-head attention performs several scaled dot-product operations in parallel. For H heads with equal head dimension d_h, the common choice d_model = H*d_h makes concatenating per-head outputs restore model width before an output projection W_O. For a batch B and time T, Q often has shape (B,H,T,d_h), K the same shape, and V typically (B,H,T,d_vh). The attention weights then have shape (B,H,T,T), not simply (T,T). Splitting a flattened projection into heads is a reshape and transpose with an exact memory-layout contract. Accidentally swapping T and H can produce shape-compatible code for some sizes while mixing tokens across heads.",
+        "An example with d_model=8 and H=2 yields two heads of width four. Suppose both heads receive a sequence of three tokens. Each produces a 3 by 4 output matrix; concatenating the last dimensions yields a 3 by 8 representation. An output matrix of shape 8 by 8 then mixes information across head channels. This projection is important because heads can develop different subspace features, yet head labels have no fixed semantic identity. One cannot promise that head zero will always track syntax and head one will always track factual references. Models can learn redundant or weak heads, and head pruning often has surprisingly task-dependent effects.",
+        "Positional encodings interact with context extension. Learned absolute position tables can fail for positions never trained, unless embeddings are extrapolated or expanded with care. Sinusoids are defined for any index but being mathematically defined does not guarantee a network performs reliably far beyond training lengths. Rotary position embeddings (RoPE) encode relative displacement in dot products through paired rotations of Q and K, but practical long-context behavior also depends on the frequency spectrum and training. Relative-position biases can add explicit preferences for nearby positions. Always evaluate position interpolation and longer contexts empirically rather than assuming an analytic construction solves generalization.",
+        "In code review, adversarially test reordering. Remove positional signals from an unmasked attention implementation and verify that permuting tokens merely permutes outputs. Then add absolute positional vectors, reorder only token content while holding positions fixed, and observe that the equality generally no longer holds. This pair of tests distinguishes the mathematical symmetry from a model-accuracy question. Separately, inspect head reshaping with non-square tensors such as B=2, H=3, T=5, d_h=4; such choices expose accidental dimension coincidences. The teaching objective is a rigorous mental model for order, not a catalog of positional buzzwords.",
+        {
+          "type": "code",
+          "text": "import numpy as np\n\ndef pos_encoding(length, width):\n    assert width % 2 == 0\n    pos=np.arange(length, dtype=float)[:,None]\n    pair=np.arange(width//2, dtype=float)[None,:]\n    angle=pos/(10000**(2*pair/width))\n    out=np.empty((length,width))\n    out[:,0::2]=np.sin(angle)\n    out[:,1::2]=np.cos(angle)\n    return out\n\ndef head_split(x,heads):\n    batch,time,width=x.shape\n    assert width%heads==0\n    return x.reshape(batch,time,heads,width//heads).transpose(0,2,1,3)\n\np=pos_encoding(5,8)\nassert np.allclose(p[0,0::2],0)\nassert np.allclose(p[0,1::2],1)\nx=np.arange(2*5*12).reshape(2,5,12)\ny=head_split(x,3)\nassert y.shape==(2,3,5,4)\nassert np.array_equal(y.transpose(0,2,1,3).reshape(x.shape),x)\nprint('position and head layout PASS')"
+        }
+      ],
+      "examples": [
+        {
+          "title": "Compute the first two position vectors",
+          "walkthrough": "For a four-channel sinusoidal encoding, the first pair uses angle equal to the integer position itself. The second pair uses angle position divided by one hundred, since 10000^(2/4)=100. At position zero the vector is (0,1,0,1). At position one the vector is approximately (0.84147,0.54030,0.01000,0.99995). These values are added to the token embeddings in the original architecture; they are not probabilities and should not be normalized by softmax. Compare positions zero and one and note that the high-frequency pair changes far more rapidly than the low-frequency pair."
+        },
+        {
+          "title": "Trace a multi-head reshape without losing tokens",
+          "walkthrough": "Take a tensor X of shape (2,5,12): two examples, five positions and twelve channels. Split the final width into three heads of four channels and transpose the result to shape (2,3,5,4). The transpose is vital: head becomes its own axis before time, so a separate head can attend along the five-position dimension. To invert the bookkeeping, transpose back to (2,5,3,4) and reshape to (2,5,12). A round-trip identity assertion verifies that the operation did not lose or reorder values. This assertion does not prove attention semantics, but it isolates one easy-to-overlook tensor layout bug."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Order is information",
+          "narration": "Contrast a content permutation with an unchanged position index.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Tokens in order A",
+              "Permute only content",
+              "Position slots unchanged"
+            ]
+          }
+        },
+        {
+          "title": "Sinusoidal channels",
+          "narration": "Observe the first token starts with alternating zero and one.",
+          "visual": {
+            "type": "equation",
+            "text": "PE(0) = [0,1,0,1]"
+          }
+        },
+        {
+          "title": "Heads are subspaces",
+          "narration": "Inspect how model width is partitioned before concatenation.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Width 12",
+              "3 heads x width 4",
+              "Concatenate -> width 12"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Test positional and head invariants",
+        "instructions": "Implement the sinusoidal encoding and a reversible head-splitting reshape. Compare the positions zero and one against hand-computed values, then test round-trip reconstruction across several batch, time and width shapes. Investigate what fails when width is not divisible by number of heads.",
+        "success": "Correct sinusoidal values, invertible head shape mapping and descriptive failures for invalid partition sizes."
+      },
+      "pitfalls": [
+        "Causal masking may encode a directional relationship but should not be equated with rich position representations.",
+        "Using an incorrect transpose can silently scramble time and head dimensions.",
+        "An analytically defined position formula does not prove long-context accuracy."
+      ],
+      "questions": [
+        {
+          "prompt": "What must hold when splitting a width-12 model into three equal heads?",
+          "choices": [
+            "Each head has width 4",
+            "Each head has width 12",
+            "Time becomes 12",
+            "The batch size triples"
+          ],
+          "answer": 0,
+          "reason": "Twelve channels divided by three heads yields four channels per head."
+        },
+        {
+          "prompt": "Without positional signals or masks, what happens if we permute all tokens consistently in Q, K and V?",
+          "choices": [
+            "Output is unchanged in every original row",
+            "Outputs reorder by the same permutation",
+            "Every attention row becomes uniform",
+            "All head outputs become zero"
+          ],
+          "answer": 1,
+          "reason": "Self-attention is permutation equivariant under those assumptions."
+        },
+        {
+          "prompt": "What is PE(0) for four sinusoidal channels?",
+          "choices": [
+            "[1,0,1,0]",
+            "[0,0,0,0]",
+            "[0,1,0,1]",
+            "[1,1,1,1]"
+          ],
+          "answer": 2,
+          "reason": "Sine of zero is zero and cosine of zero is one for each frequency pair."
+        }
+      ],
+      "resources": [
+        {
+          "title": "RoFormer: Enhanced Transformer with Rotary Position Embedding",
+          "url": "https://arxiv.org/abs/2104.09864"
+        },
+        {
+          "title": "Attention Is All You Need (original positional encodings)",
+          "url": "https://arxiv.org/abs/1706.03762"
+        }
+      ],
+      "challenge": "Write a small permutation-equivariance test for unmasked attention and show that reordering input rows yields a correspondingly reordered output. Then add fixed absolute positional vectors and show that reordering content alone generally violates that equality. Explain whether the difference proves model quality or only breaks a symmetry.",
+      "evidence_note": "Suggested primary reading: RoFormer: Enhanced Transformer with Rotary Position Embedding, Attention Is All You Need (original positional encodings). URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    },
+    {
+      "title": "KV Caching",
+      "status": "generated",
+      "objectives": [
+        "Trace why autoregressive generation can reuse old keys and values",
+        "Calculate cache memory in bytes and distinguish GQA from MHA",
+        "Detect cache position and stale-state failures"
+      ],
+      "hook": "Generating one token at a time appears to call attention on nearly the same prefix repeatedly. Why recompute the representations of all earlier positions if those past values do not change in a causal transformer? KV caching exploits that observation, but only if we get positions, ownership and attention masks exactly right.",
+      "explanation": [
+        "An autoregressive decoder predicts the next token conditioned on a prefix. During initial prefill it processes a prompt and computes the key and value tensors at every layer. At generation step t, only the newest token needs new key and value entries, because the attention representations of earlier positions cannot depend on unseen future tokens under causal masking. The latest query compares itself against the cached key sequence, obtains weights over the entire visible history, and forms a weighted sum of cached values. Cached entries are not model outputs or hidden-state snapshots in a generic sense; they are specifically keys and values for each layer in the transformer stack.",
+        "For standard multi-head attention, memory scales as 2 * layers * batch * sequence_length * number_of_KV_heads * head_dim * bytes_per_element. The factor two counts keys and values; it does not count queries, which are transient for the active step. For example, with 24 layers, batch 1, 4096 cached positions, 8 KV heads, head dimension 128 and two bytes per element, memory is 2*24*1*4096*8*128*2 = 402,653,184 bytes, or exactly 384 MiB. The same formula yields more than double this memory when sequence length or concurrent requests grows. Allocate for peak concurrency and fragmentation, not only a single user request.",
+        "Grouped-query attention, or GQA, reduces cache memory because several query heads share each KV head. If a model has 32 query heads but 8 KV heads, there are four query heads per KV group, and the stored KV tensor has eight head slots rather than thirty-two. Multi-query attention is the extreme case with one shared key head and one value head per layer. These changes alter model representation and computational behavior; it is incorrect to replace an existing trained standard-MHA model with GQA by only changing the inference cache shape. Cache layouts must match the architecture and the projection weights used by that model.",
+        "Caching improves compute efficiency, but it does not make generation constant-time with respect to context. Each new query still attends across up to t cached key positions. As t grows, per-token attention work and memory reads can rise even though recomputation of earlier key/value projections is avoided. Real throughput depends on prefill versus decode workloads, batch scheduling, memory bandwidth, kernel choices and cache allocation. This is why measuring a single-token latency on a short prompt cannot predict server performance for multiple long conversations. Distinguish time to first token from steady-state tokens per second.",
+        "Cache validity depends on exact token identities, positions, model weights and the context serialization policy. If a prompt changes midway, the old cache cannot generally be reused as though it were computed for the new sequence. In a decoder with rotary position embeddings, newly generated tokens must use the correct absolute position when constructing Q and K rotations; reusing position zero for each generated token gives different results from full recomputation. When sliding-window or paged attention is used, logical positions and physical memory slots must be decoupled. A memory slot reused for a different request must never expose residual keys from the previous user.",
+        "An adversarial correctness test compares full-prefix recomputation with incremental cache decoding on a small deterministic model. Feed tokens one at a time, append their keys and values, and compare each newest-token output to the last output row from full causal attention on the entire prefix. These should match within numeric tolerance if the positional and masking semantics are consistent. Randomly modify an earlier token and ensure that cache invalidation or prefix-rebuild logic responds correctly. For a multi-tenant server, also test session isolation and rollback after cancelled or failed generations. Speed optimizations are only trustworthy when their mathematical contract survives these perturbations.",
+        {
+          "type": "code",
+          "text": "import numpy as np\n\ndef newest_full(q,k,v):\n    logits=q[-1:]@k.T/np.sqrt(q.shape[-1])\n    w=np.exp(logits-logits.max(axis=1,keepdims=True))\n    return (w/w.sum(axis=1,keepdims=True))@v\n\ndef incremental(q_steps,k_steps,v_steps):\n    cache_k=[];cache_v=[];outputs=[]\n    for q,k,v in zip(q_steps,k_steps,v_steps):\n        cache_k.append(k);cache_v.append(v)\n        all_k=np.stack(cache_k);all_v=np.stack(cache_v)\n        outputs.append(newest_full(np.stack([q]),all_k,all_v)[0])\n    return np.stack(outputs)\n\nrng=np.random.default_rng(7)\nq=rng.normal(size=(6,4)); k=rng.normal(size=(6,4));v=rng.normal(size=(6,3))\nout=incremental(q,k,v)\nfor t in range(1,len(q)+1):\n    expected=newest_full(q[:t],k[:t],v[:t])[0]\n    assert np.allclose(out[t-1],expected,atol=1e-12)\nbytes_used=2*24*1*4096*8*128*2\nassert bytes_used==402653184\nprint('cache equivalence PASS; MiB=',bytes_used/2**20)"
+        }
+      ],
+      "examples": [
+        {
+          "title": "Compute capacity for a deployment",
+          "walkthrough": "Suppose a twenty-four-layer model stores eight KV heads of width 128 per layer, uses two-byte floating-point entries, and has one request containing 4096 cached tokens. Multiply layers by positions and head width, then multiply by the key/value factor of two and the bytes per element. The result is 402,653,184 bytes, or 384 MiB. For a batch of eight such sequences without sharing, the raw key-value allocation is about three GiB; additional allocator, metadata and working memory are outside this estimate. The key point is that KV-cache memory is a resource budget that can constrain concurrency even when model weights already fit in the accelerator."
+        },
+        {
+          "title": "Check incremental decoding against a full prefix",
+          "walkthrough": "Take six fixed query, key, and value vectors. For the third generation step, store keys and values from steps one through three, then calculate the current query softmax over those three keys. Independently, run causal attention over a three-token prefix and extract its final row; the result must match within tolerance. Repeat this for all six prefixes. This tests the numerical algebra of cache reuse while keeping position encoding constant and precomputed. It does not automatically validate rotary embedding positions, beam-search cache reordering, or request-specific memory isolation. Those need separate integration tests in a real decoder."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Prefill and decode",
+          "narration": "Contrast building the full prefix cache with adding one token at a time.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Prefill full prompt",
+              "Store layer keys/values",
+              "Decode newest token"
+            ]
+          }
+        },
+        {
+          "title": "Memory footprint",
+          "narration": "Show how the two stored tensor families determine capacity.",
+          "visual": {
+            "type": "equation",
+            "text": "KV bytes = 2 L B T H_kv d_h b"
+          }
+        },
+        {
+          "title": "Grouped query attention",
+          "narration": "Compare query-head groups that share one KV head.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "32 query heads",
+              "8 key/value heads",
+              "4 queries per KV group"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Audit cache correctness and budget",
+        "instructions": "Use the provided incremental attention example to compare every newly decoded token with the final row of a full-prefix attention calculation. Recompute the memory budget for four simultaneous requests of different lengths, and explain whether capacity scales with maximum allocated length or actual occupied slots under your chosen allocator.",
+        "success": "Every incremental output matches full-prefix computation and memory estimates explicitly distinguish raw entries from allocator overhead."
+      },
+      "pitfalls": [
+        "Cache sharing between unrelated sessions is a data-isolation failure.",
+        "Reusing position indices under rotary encodings causes incorrect scores even when tensor shapes match.",
+        "KV caching avoids recomputing historical projections but does not remove sequence-dependent attention work."
+      ],
+      "questions": [
+        {
+          "prompt": "What is stored in a decoder KV cache?",
+          "choices": [
+            "Only next-token probabilities",
+            "Only model input token strings",
+            "All model output logits for every position",
+            "Past projected keys and values for each decoder layer"
+          ],
+          "answer": 3,
+          "reason": "Cached K and V projections are reused by the newest query across the visible context."
+        },
+        {
+          "prompt": "Which configuration directly reduces the raw KV-cache size for fixed layers, batch, sequence length, head width and dtype?",
+          "choices": [
+            "Using fewer KV heads via a trained GQA architecture",
+            "More query heads with the same KV heads",
+            "A larger output vocabulary",
+            "Adding more position channels"
+          ],
+          "answer": 0,
+          "reason": "The memory formula is linear in the count of stored KV heads."
+        },
+        {
+          "prompt": "For 24 layers, 4096 tokens, 8 KV heads, width 128, and FP16, what is the approximate raw cache memory for batch one?",
+          "choices": [
+            "48 MiB",
+            "384 MiB",
+            "192 MiB",
+            "768 MiB"
+          ],
+          "answer": 1,
+          "reason": "The two tensors occupy 402,653,184 bytes, which is 384 MiB."
+        }
+      ],
+      "resources": [
+        {
+          "title": "Fast Transformer Decoding: One Write-Head is All You Need",
+          "url": "https://arxiv.org/abs/1911.02150"
+        },
+        {
+          "title": "GQA: Training Generalized Multi-Query Transformer Models",
+          "url": "https://arxiv.org/abs/2305.13245"
+        }
+      ],
+      "challenge": "Implement a cache invalidation experiment: alter token two of a six-token sequence, recompute all later keys and values, and show why naïvely reusing the prior cache yields an incorrect answer. Describe how prefix-based caching can safely reuse only an unchanged common prefix and what additional checks are required in a multi-request serving system.",
+      "evidence_note": "Suggested primary reading: Fast Transformer Decoding: One Write-Head is All You Need, GQA: Training Generalized Multi-Query Transformer Models. URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    }
+  ]
+}

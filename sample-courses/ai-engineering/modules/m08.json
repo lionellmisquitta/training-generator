@@ -1,0 +1,302 @@
+{
+  "title": "Knowledge Graphs",
+  "lessons": [
+    {
+      "title": "Entities and Provenance",
+      "status": "generated",
+      "objectives": [
+        "Design a typed entity/relationship schema with stable identifiers and time-bounded assertions",
+        "Represent provenance for extracted claims, distinguish sources from confidence, and preserve contradictions",
+        "Implement a small provenance-aware assertion ledger and exercise conflict and access-control cases"
+      ],
+      "hook": "A codebase contains a table called Customer, a Jira issue says the table was retired, and an operations runbook says it remains authoritative. A vector search can surface all three statements, but a system that turns them into one unqualified triple destroys the very disagreement an engineer must investigate. A trustworthy knowledge graph must know not only what was asserted but also who asserted it, when, and in which version.",
+      "explanation": [
+        "Start with a deliberately narrow ontology rather than labeling every noun as a node. An entity is a referent with stable identity: a table, application, API operation, requirement, person or deployment. A mention is an occurrence of a name in a specific source. “Order” in a SQL schema and “order” in a procurement policy may not be the same entity. Resolve names only using evidence such as database namespace, repository origin, stable IDs and context. Prefer typed keys such as db:billing.public.order_lines over text labels. A relationship must have a meaning that can be tested: READS_TABLE, CALLS_API, IMPLEMENTS_RULE and OWNER_OF are different predicates, not generic RELATED_TO. The schema is a contract for retrieval and impact analysis. Avoid conflating code-level existence, documented intention and runtime observation; each has different evidential status.",
+        "The essential modeling unit is an assertion, not just a bare edge. Represent the statement that service A calls operation B as a record with subject, predicate, object, source reference, source revision or commit, extraction method, observed time, optional validity interval and permissions. A claim may have multiple support records. If two sources disagree, preserve two claims with their evidence rather than overwriting one. This also avoids the common mistake of treating a model confidence score as truth probability. A high-confidence extraction can faithfully capture a false runbook entry. Trust depends on source authority, recency, independence and applicability; these are policy decisions, not a universal scalar. Provenance links should survive source deletion policies and redaction: keep only lawful, non-sensitive identifiers and invalidate evidence where necessary.",
+        "The W3C PROV-O vocabulary provides a useful conceptual split: an Entity is something with fixed aspects, an Activity transforms or uses entities, and an Agent bears responsibility. An extracted graph claim can be linked to the source entity and the extraction activity, with an agent or software process responsible for it. Do not pretend every bespoke graph is automatically PROV-O compliant; mapping needs explicit semantics. For example, the source revision is an entity, the parsing run is an activity, and the extractor version is an agent or software agent. Attach source offsets or line spans to allow reviewers to inspect the originating passage. A content hash identifies bytes, while a document URI is an address that may later serve different bytes. Both matter.",
+        "Time is not a single timestamp. Transaction time tells us when the system learned an assertion. Valid time tells us when the assertion was believed to hold in the modeled world. If an API route was retired on 1 June but discovered in a migration note on 10 June, those dates must not be swapped. An as-of query for 5 June should not silently accept a current route that existed only after 8 June. Versioned claims and provenance make replay possible. The graph store may be RDF, a property graph or relational edge tables; correctness does not depend on buying a graph database. For small, reproducible evaluation, an append-only JSONL assertion ledger and deterministic traversal often outperform opaque heuristic ingestion. Promote extracted candidates to accepted assertions through checks, not by replacing the source-of-truth system.",
+        "An operational graph also needs a threat model. A retrieved passage may attempt to instruct the assistant to ignore authorization or reveal a secret. Its content is data, not authority. Enforce access policy before candidate expansion, during neighbor traversal, and before the final evidence bundle is sent to a model. Security labels propagate along derived results; finding a permitted service node cannot be allowed to disclose a restricted incident connected to it. Separately measure extraction precision, entity resolution accuracy, provenance coverage, contradiction retention and as-of correctness. A graph with many nodes is not necessarily an effective knowledge base; test whether it returns verifiable answers and declines when the cited lineage is absent."
+      ],
+      "examples": [
+        {
+          "title": "A contradiction that must not be flattened",
+          "walkthrough": "A schema dump at commit c17 shows the customer_status column; a change request says it must be removed; production telemetry two days later still includes it. The three records describe observed structure, desired change and observed runtime behavior. They are not logically interchangeable. Assign separate predicates HAS_COLUMN, REQUESTS_REMOVAL and EMITS_FIELD, each with source revision and observation time. A query “Does production still emit customer_status?” should rank runtime evidence first, not mistakenly infer from the request that the field has disappeared. This is a manual worked classification, not an assertion that telemetry is universally correct."
+        },
+        {
+          "title": "Conflict-preserving assertion ledger in Python",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "This executable example stores all claims independently. It rejects malformed provenance; it never resolves a conflict by taking the last item. The exact same subject and predicate can have two objects and remain queryable. Filtering by access group happens before evidence display, and a strict policy requires an explicit permitted label. A real implementation needs authenticated principals, immutable audit logs and a tested bitemporal model, but the core invariant is visible here. Read the asserted outputs carefully: the two payment destinations coexist as separate sourced statements, not mutually exclusive ground truth. The absent restricted destination demonstrates access filtering but does not prove the user lacks an alternative inference path through another data source. In a real ledger, record an immutable evidence identifier and time interval per assertion, audit every read decision, and separately test the data-retention and deletion rules. Finally, treat any code output as an observable test of this toy data structure rather than evidence that upstream documents are accurate."
+            },
+            {
+              "type": "code",
+              "text": "claims = [\n    dict(s=\"svc:billing\", p=\"CALLS_API\", o=\"api:payments-v1\", source=\"trace:42\", access=\"eng\"),\n    dict(s=\"svc:billing\", p=\"CALLS_API\", o=\"api:payments-v2\", source=\"deploy:17\", access=\"eng\"),\n    dict(s=\"svc:billing\", p=\"CALLS_API\", o=\"api:internal-admin\", source=\"audit:6\", access=\"security\")\n]\ndef evidence(subject, predicate, groups):\n    return [c for c in claims if c[\"s\"] == subject and c[\"p\"] == predicate\n            and c[\"access\"] in groups and c[\"source\"]]\npublic = evidence(\"svc:billing\", \"CALLS_API\", {\"eng\"})\nassert {c[\"o\"] for c in public} == {\"api:payments-v1\", \"api:payments-v2\"}\nassert \"api:internal-admin\" not in {c[\"o\"] for c in public}\nassert len(evidence(\"svc:billing\", \"CALLS_API\", set())) == 0\nprint(\"PASS: conflicting evidence retained and restricted claim excluded\")"
+            }
+          ]
+        }
+      ],
+      "scenes": [
+        {
+          "title": "From mention to identity",
+          "narration": "A phrase in a design note is an unverified mention. A namespace and source-backed identity resolution allow the pipeline to propose a typed node. Only then can it become a queryable entity.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Source span",
+              "Mention",
+              "Entity resolution",
+              "Typed entity"
+            ]
+          }
+        },
+        {
+          "title": "Preserve competing edges",
+          "narration": "Two source revisions assert different API targets for the same service. Both edges remain, with independent source references. A reviewer can inspect the conflict rather than inherit a silent overwrite.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Service",
+              "Claim A → v1",
+              "Claim B → v2",
+              "Evidence + time"
+            ]
+          }
+        },
+        {
+          "title": "Provenance chain",
+          "narration": "An extraction activity uses a document revision and produces a claim, with an extractor run as the responsible process. This is conceptual alignment with PROV-O rather than a full RDF serialization.",
+          "visual": {
+            "type": "tokens",
+            "items": [
+              "Entity: document",
+              "Activity: parse",
+              "Entity: assertion",
+              "Agent: extractor"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Build an evidence ledger",
+        "instructions": "Using the provided Python ledger, add a third source claiming payments-v1 was decommissioned. Keep the historical claim, add source and valid-time metadata, and write an as-of filter for two dates. Demonstrate that an unauthorized group cannot enumerate security-only neighbors, and explain why extraction confidence cannot settle the conflict.",
+        "success": "A deterministic test shows different as-of answers, retains both source references, rejects missing provenance and never reveals the restricted neighbor."
+      },
+      "pitfalls": [
+        "Treating a mention string as globally unique identity",
+        "Overwriting contradictory edges with the most recent imported row",
+        "Storing model confidence without source revision or offsets",
+        "Filtering authorization only after the model has seen retrieved context"
+      ],
+      "questions": [
+        {
+          "prompt": "Which record is best modeled as a claim with provenance?",
+          "choices": [
+            "A typed edge plus source revision and source span",
+            "A bare node label",
+            "A vector dimension count",
+            "An embedding batch size"
+          ],
+          "answer": 0,
+          "reason": "A testable assertion should carry its originating evidence and revision."
+        },
+        {
+          "prompt": "A request ticket asks for removal but runtime traces still show the field. What is the sound conclusion?",
+          "choices": [
+            "The ticket proves the field is gone",
+            "Preserve intention and observation as distinct evidence",
+            "The telemetry must be discarded",
+            "Average the two source scores"
+          ],
+          "answer": 1,
+          "reason": "A planned change and observed state answer different questions."
+        },
+        {
+          "prompt": "Which pair distinguishes when an event was true from when it was recorded?",
+          "choices": [
+            "Precision and recall",
+            "Tokens and embeddings",
+            "Transaction time and valid time",
+            "Node degree and centrality"
+          ],
+          "answer": 2,
+          "reason": "Valid time concerns the modeled world; transaction time tracks when the system recorded it."
+        },
+        {
+          "prompt": "What does high extraction confidence establish?",
+          "choices": [
+            "The underlying source is necessarily true",
+            "The extracted text is confidential",
+            "Every conflicting assertion can be deleted",
+            "The statement was likely extracted consistently, not that its source is correct"
+          ],
+          "answer": 3,
+          "reason": "Extraction fidelity and real-world truth are separate assessments."
+        }
+      ],
+      "challenge": "Design an identity and provenance schema for a brownfield application with two renamed tables and three conflicting source types: source code, Jira requirements, and deployment logs. Specify merge criteria, source offsets, bitemporal fields, permission filtering and a test where the system refuses to answer without primary evidence. Include the query and its expected evidence IDs.",
+      "resources": [
+        {
+          "title": "W3C PROV-O Recommendation",
+          "url": "https://www.w3.org/TR/prov-o/"
+        },
+        {
+          "title": "W3C PROV Data Model",
+          "url": "https://www.w3.org/TR/prov-dm/"
+        }
+      ],
+      "evidence_note": "Primary W3C PROV-O specification checked live 2026-10-25; the local Python schema is a pedagogical adaptation and not a complete W3C ontology implementation."
+    },
+    {
+      "title": "Graph-Based Retrieval",
+      "status": "generated",
+      "objectives": [
+        "Construct seed-selection, bounded traversal and evidence-ranking algorithms for graph-based RAG",
+        "Explain when local and global graph retrieval help and where they fail compared with vector search",
+        "Evaluate path faithfulness, permissions and graph coverage with executable assertions"
+      ],
+      "hook": "Suppose an incident report says invoices failed after a deployment. The deployment record mentions an API gateway, and the gateway configuration points to a database migration. None of those passages contains every term in the question “Which schema change affected invoicing?” A top-k similarity search may miss the causal chain. Graph retrieval can bridge the records—provided its edges have real evidence rather than plausible-sounding model guesses.",
+      "explanation": [
+        "Graph retrieval starts with a query plan, not an unrestricted neighborhood crawl. First recognize the user’s target entities, predicates, time constraints and permission context. Next retrieve high-recall seed nodes using lexical, embedding or exact-ID matching. For a request about service billing, a fuzzy match to the word “billing” must not automatically become a high-confidence identity: verify namespace or source mapping. An ambiguous seed should branch into labeled candidates, or the system should ask a disambiguating question. A retrieval plan specifies allowed edge types, maximum hop count, maximum candidate expansion and a budget for supporting source snippets. Without these limits, high-degree hubs such as “Company” swallow the context budget and distant weak associations masquerade as explanatory evidence.",
+        "After seed identification, traverse only edges that answer the question type. A dependency impact query may allow CALLS, READS and WRITES; a governance query may allow OWNED_BY and APPROVED_IN. Require each traversed edge to have a source, a valid-time relationship to the question, and authorization for the current principal. For an impact analysis query, a two-hop path service → table → migration may offer a concrete hypothesis, but it is not proof of causality. The returned explanation should name the direction of each predicate, the supporting document spans, and what is not established. Traversal can be implemented by breadth-first search with a visited set, though retrieving multiple independent paths may require tracking state as (node, path) instead of globally excluding all revisits.",
+        "Ranking graph evidence is not simply counting hops. A short path with stale or unauthoritative edges may be less useful than a longer path supported by active deployment logs. A defensible scoring design separates relevance from source quality, validity interval, path length and redundancy. Avoid interpreting a heuristic score as a calibrated probability. For each candidate path, one may compute a base relevance score minus hop penalty, then apply hard filters for access and time; those filters must never be traded against scoring. High precision under one hand-built example does not imply robust deployment quality. Compare the graph method to lexical retrieval, dense retrieval and a combined hybrid baseline with identical corpora and judgment sets.",
+        "Microsoft GraphRAG documentation distinguishes local search for entity-centered reasoning, global search for corpus-wide themes using community summaries, and basic search for ordinary vector retrieval. These are engineering choices, not a guarantee that graph methods outperform RAG in every domain. Community detection and summarization may reveal themes that no single chunk describes, but they add indexing cost, can omit minority facts and may blur lineage. Global summaries are especially dangerous for exact regulatory or contract claims unless the system can trace a summary back to specific source text. For specific operational questions, targeted path retrieval plus raw evidence is often easier to audit than a global narrative. Maintain separate metrics for seed recall, path recall, evidence precision, grounding and downstream answer correctness.",
+        "Failure analysis should be adversarial. Plant one plausible but false extracted edge, one revoked-source passage, one high-degree hub and one sensitive neighbor. Test whether the planner expands incorrectly, whether budget limits cause truncation, whether the response leaks restricted data and whether unsupported causality is asserted. For each answer sentence, require at least one accessible supporting source whose text actually entails the claim; an edge merely pointing to a document is not sufficient. If the query asks why a change caused an outage but the graph only proves temporal sequence, the model must explicitly abstain on cause. A useful graph retrieval system is an evidence navigation mechanism, not a license to hallucinate connections.",
+        "A retrieval evaluation must record ground truth at two levels: judged edges and judged source passages. An algorithm might find a structurally correct path whose document is outdated, or locate an authentic document attached to the wrong entity. Report both path recall and citation entailment, then investigate disagreement cases by inspecting raw source spans. A credible evaluation uses time-separated queries and a frozen index to avoid accidentally grading against future evidence. Where review effort is limited, stratify test cases by hop count, source type, time validity and access tier instead of selecting only easy successes."
+      ],
+      "examples": [
+        {
+          "title": "Manual path reasoning through a migration",
+          "walkthrough": "The user asks “What change may affect invoice posting?” A code map records BillingService READS InvoiceTable, a schema record says Migration19 ALTERS InvoiceTable, and a release log says Deploy9 INCLUDES Migration19. A bounded traversal from BillingService through InvoiceTable reaches Migration19 in two hops. The correct report is “Migration19 is a candidate impacting invoice posting,” citing all edges; it is not “Migration19 caused the incident” without runtime or causal evidence. If a second path via ReportService appears, keep both without claiming independence when their provenance is the same release note. A dependency path reveals possible impact, not observed failure."
+        },
+        {
+          "title": "Bounded, authorized BFS in Python",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "The adjacency list contains source IDs and permission labels for every edge. Traversal tests the authorization filter before following a neighbor, enforces a strict hop limit and does not expand unrelated relationships. A zero-hop query returns only the seed. The proof checks that the restricted security node never enters the returned evidence paths. In production, per-edge policy is not always sufficient: entity metadata and result-level inference risk also need review. The algorithm stores each candidate path explicitly instead of storing only a single visited flag per node, allowing distinct source-backed paths to survive if the example is extended with alternative branches. That choice increases memory cost and requires a bounded candidate budget in production. For this exercise, a two-hop limit deliberately prevents the deployment node from being included. Increasing the limit to three should discover that node through the authorized chain. These checks validate traversal mechanics, not the business truth of the underlying dependency assertions."
+            },
+            {
+              "type": "code",
+              "text": "from collections import deque\nedges = {\n \"svc:billing\": [(\"READS\", \"table:invoice\", \"code:8\", \"eng\"),\n                 (\"OWNS\", \"user:secret\", \"hr:1\", \"security\")],\n \"table:invoice\": [(\"ALTERED_BY\", \"migration:19\", \"schema:2\", \"eng\")],\n \"migration:19\": [(\"DEPLOYED_IN\", \"deploy:9\", \"release:3\", \"eng\")]\n}\ndef paths(start, allowed, max_hops=2):\n    q = deque([(start, [])]); out = []\n    while q:\n        node, path = q.popleft()\n        if path: out.append(path)\n        if len(path) >= max_hops: continue\n        for pred, nxt, source, access in edges.get(node, []):\n            if pred not in {\"READS\", \"ALTERED_BY\", \"DEPLOYED_IN\"} or access not in allowed:\n                continue\n            if nxt in [start] + [step[1] for step in path]: continue\n            q.append((nxt, path + [(pred, nxt, source)]))\n    return out\nfound = paths(\"svc:billing\", {\"eng\"}, 2)\nassert any(p[-1][1] == \"migration:19\" for p in found)\nassert not any(step[1] == \"user:secret\" for p in found for step in p)\nassert not any(p[-1][1] == \"deploy:9\" for p in found)\nassert len(paths(\"svc:billing\", {\"eng\"}, 0)) == 0\nprint(\"PASS: bounded evidence paths and permissions\")"
+            }
+          ]
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Plan before expansion",
+          "narration": "The query planner selects a concrete entity and edge allowlist based on the task; unrestricted graph walking yields arbitrary neighbors.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "User question",
+              "Resolved seed",
+              "Allowed predicates",
+              "Budgeted expansion"
+            ]
+          }
+        },
+        {
+          "title": "Trace a two-hop dependency",
+          "narration": "Each edge in a service-to-migration path points to a source span. The output is a candidate dependency, not proven incident causality.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "BillingService",
+              "InvoiceTable",
+              "Migration19",
+              "Evidence IDs"
+            ]
+          }
+        },
+        {
+          "title": "Compare retrieval designs",
+          "narration": "Local graph search follows entity links; global graph search summarizes communities; basic retrieval selects relevant chunks. Evaluate each against the same question set.",
+          "visual": {
+            "type": "tokens",
+            "items": [
+              "Lexical / dense",
+              "Graph local",
+              "Graph global",
+              "Hybrid baseline"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Test evidence-path retrieval",
+        "instructions": "Extend the executable BFS to include an outdated migration assertion with validity times, a missing source ID and a cyclic service dependency. Enforce time and provenance filters before expansion, then benchmark path recall against a vector-only top-k list on five manually judged questions. Record where graph traversal adds noise or misses answers.",
+        "success": "All unauthorized, stale and source-free edges are excluded; cycles terminate; a two-hop invoice impact path remains recoverable and every displayed edge has a source reference."
+      },
+      "pitfalls": [
+        "Mistaking path connectivity for proof of causation",
+        "Ignoring time and authorization until after evidence retrieval",
+        "Reporting only graph retrieval accuracy without a vector baseline",
+        "Using centrality or path length as if they were calibrated evidence truth scores"
+      ],
+      "questions": [
+        {
+          "prompt": "A two-hop dependency chain proves what?",
+          "choices": [
+            "A possible impact path supported by its edge sources",
+            "That the downstream service failed",
+            "That all nodes have equal permissions",
+            "That the nearest vector result is false"
+          ],
+          "answer": 0,
+          "reason": "A dependency chain offers a hypothesis; causal claims need additional evidence."
+        },
+        {
+          "prompt": "Which stage must apply authorization filtering?",
+          "choices": [
+            "After generating the model answer",
+            "Before and during graph expansion",
+            "Only during indexing",
+            "Only after drawing the graph"
+          ],
+          "answer": 1,
+          "reason": "A forbidden neighbor must not be exposed to the retrieval context."
+        },
+        {
+          "prompt": "Which evaluation most directly measures whether relevant paths were found?",
+          "choices": [
+            "GPU utilization",
+            "Tokenization entropy",
+            "Path recall against judged gold paths",
+            "Graph node count"
+          ],
+          "answer": 2,
+          "reason": "A labeled set of true evidence paths is required to measure their retrieval coverage."
+        },
+        {
+          "prompt": "What is the strongest reason to retain basic retrieval alongside GraphRAG?",
+          "choices": [
+            "Graph retrieval cannot store text",
+            "All dense vectors are graph edges",
+            "Community reports guarantee exact citations",
+            "Baselines expose where complex graph indexing adds no measured value"
+          ],
+          "answer": 3,
+          "reason": "An identical-corpus baseline reveals when graph cost fails to improve answer quality."
+        }
+      ],
+      "challenge": "Design a hybrid retriever for application-change impact analysis. Name seed candidates, relationship allowlists, two retrieval budgets, a path-level evidence format and an evaluation set with five known changes. Provide a counterexample where the shortest graph path is misleading, an authorization regression test, and a rule for abstaining on unsupported incident causality.",
+      "resources": [
+        {
+          "title": "Microsoft GraphRAG Local Search",
+          "url": "https://microsoft.github.io/graphrag/query/local_search/"
+        },
+        {
+          "title": "Microsoft GraphRAG Global Search",
+          "url": "https://microsoft.github.io/graphrag/query/global_search/"
+        },
+        {
+          "title": "Microsoft GraphRAG Query Overview",
+          "url": "https://microsoft.github.io/graphrag/query/overview/"
+        }
+      ],
+      "evidence_note": "Microsoft GraphRAG primary project documentation checked live 2026-10-25 for local/global/basic distinctions; the BFS and rank-policy guidance are original instructional examples, not copied implementation details."
+    }
+  ]
+}

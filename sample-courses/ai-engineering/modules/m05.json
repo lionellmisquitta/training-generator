@@ -1,0 +1,309 @@
+{
+  "title": "Model Training",
+  "lessons": [
+    {
+      "title": "Data Pipelines and Deduplication",
+      "status": "generated",
+      "objectives": [
+        "Design a reproducible, leakage-resistant pretraining data pipeline with provenance and shard-level manifests",
+        "Distinguish exact hashing from approximate near-duplicate detection and quantify false positives",
+        "Implement a deterministic document-level MinHash-style similarity experiment and verify deduplication ordering"
+      ],
+      "hook": "Imagine your trillion-token training run finishes on time, yet its evaluation score collapses when the benchmark is rewritten. A subtle cause may be upstream: duplicated web pages, benchmark answers copied into training data, or sample-specific normalization applied after splitting. Efficient accelerator kernels cannot rescue a corrupted data contract. This lesson turns raw text into auditable training examples.",
+      "explanation": [
+        "A language-model dataset is not merely a directory of scraped files. It is a versioned transformation from raw documents to a sequence of training tokens with explicit inclusion criteria. A rigorous pipeline starts with immutable raw objects and source identifiers. It then applies licensing and use-policy screening, basic quality and language filters, personally identifiable information handling, decontamination against evaluation sets, near-duplicate control, and finally a pinned tokenizer and packing policy. Record the order: changing the order changes which information survives and what is counted. For example, filtering exact duplicates after tokenization may catch identical token streams but can waste substantial preprocessing effort; hashing canonicalized document text earlier can remove boilerplate cheaply. A stable document identifier must survive transformations so that exclusion decisions can be audited. When the raw corpus changes, treat the resulting dataset as a new artifact, not the same dataset with a new filename.",
+        "Exact deduplication typically computes a cryptographic digest of canonicalized bytes. Under a chosen canonicalization, digest equality is evidence of identical strings, not of semantic equivalence. Unicode normalization, case folding, whitespace collapsing, and punctuation stripping are policy decisions: they may remove noise, but they can erase distinctions in code, mathematics, and multilingual writing. Near-duplicate detection uses signatures that approximate text overlap. For shingle sets A and B, Jaccard similarity is |A intersection B| / |A union B|. MinHash exploits the property that, under a uniform random permutation over the shingle universe, the probability that two sets have the same minimum is their Jaccard similarity. With k approximately independent hash functions, the fraction of matching minima estimates that probability with standard error roughly sqrt(J(1-J)/k). Locality-sensitive hashing can retrieve candidates, but every candidate policy still needs an explicit threshold and a false-positive audit. Similarity is not plagiarism detection, and a short boilerplate sentence shared by different documents is not proof that either should be dropped.",
+        "The unit of splitting matters as much as the deduplication algorithm. If a document is chunked into overlapping windows before a train/validation split, nearly identical windows can fall on both sides and inflate metrics. Partition by source entity, document family, or a defensible temporal boundary before constructing chunks. Decontaminate held-out evaluation prompts against the complete candidate training corpus, including paraphrased and template variants where feasible. Keep a testable manifest per shard: source revision, filtering rules, tokenizer checksum, token count, document count, random seed, dedup threshold, exclusion counts by reason, and a checksum of the output shard. If a trainer reports unexpectedly high throughput after a data change, check whether it silently skipped short documents or stopped on failed shards; tokens consumed must agree with manifest totals, not merely with loader iteration counts.",
+        "For statistical reasoning, do not mistake a reduced dataset size for proof of improved generalization. Dedup can make sampling fairer and reduce memorization, but overly aggressive filtering may disproportionately remove rare languages, repeated legal expressions, or minority dialects. Audit retained distributions and evaluate downstream accuracy, calibration, contamination and memorization across groups. A reproducible pipeline makes each choice explicit: which sources were excluded, why the policy is justified, and how one would roll it back. This differs from a dashboard that only reports 'duplicates removed': auditability requires that a reviewer can reconstruct which records changed and can demonstrate whether an evaluation document could have leaked across boundaries. As a practical training design, version manifests and pin deterministic seeds so identical input plus configuration reproduces the same ordered sequence of tokenized shards.",
+        "A defensible engineering write-up should also include a falsification plan. Record one measured observation, one estimated quantity, and one clearly stated assumption. Change one assumption at a time and test whether the design decision reverses. If the outcome changes materially under realistic alternatives, the plan requires a sensitivity range rather than a single headline figure. Run the included test under a clean Python interpreter and retain the output, including the exact source revision used for the estimate. This makes performance and quality claims independently reproducible."
+      ],
+      "examples": [
+        {
+          "title": "Exact versus near-duplicate on a small corpus",
+          "walkthrough": "Take document A as \"the river runs beside the old bridge\", B as \"the river runs beside the stone bridge\", and C as A with repeated spaces. Whitespace-canonicalize A and C; a SHA-256 digest then matches them exactly. A and B do not hash to the same digest. With word bigrams, A has six shingles and B has six. Their common shingles are \"the river\", \"river runs\", \"runs beside\", \"beside the\", four in all; the union has eight. Jaccard similarity is therefore 4/8=0.5. At a policy threshold of 0.8, A and B are deliberately retained. A system that conflates exact equivalence and topical similarity could delete B. To confirm this, calculate the sets explicitly, compare all pairwise scores, and inspect the output rather than trusting the number of retained documents alone."
+        },
+        {
+          "title": "Executable retention and split-invariant test",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "The following uses standard-library Python and document-level splitting. Canonicalization only collapses whitespace; it intentionally preserves case and punctuation. It computes exact digests and shingle Jaccard scores, then confirms a stable family-level split. With the three documents in the first example, the expected exact-unique count is two. The two distinct bridge documents have a Jaccard score of 0.5 and are not removed at a near-duplicate threshold of 0.8. Before production, replace this toy pairwise comparison with a well-tested scalable MinHash/LSH implementation and evaluate false positives on a labeled sample. In the experiment, explicitly distinguish the observable result of this program from any claim about a full production training run. The code tests an invariant on toy inputs only. A reliable engineering implementation would also test representative datasets or hardware, capture failures, and record metrics that could falsify its assumptions. Change an input, predict the result before running the program, and compare the actual output with the prediction. If the assertion fails, investigate the model of the process rather than deleting the assertion."
+            },
+            {
+              "type": "code",
+              "text": "import hashlib, re\n\ndef canonical(s):\n    return ' '.join(s.split())\n\ndef shingles(s, n=2):\n    w = canonical(s).split()\n    return set(tuple(w[i:i+n]) for i in range(len(w)-n+1))\n\ndef jaccard(a, b):\n    A, B = shingles(a), shingles(b)\n    return len(A & B) / len(A | B) if (A | B) else 1.0\n\nA = 'the river runs beside the old bridge'\nB = 'the river runs beside the stone bridge'\nC = 'the   river runs beside the old bridge'\ndigest = lambda s: hashlib.sha256(canonical(s).encode()).hexdigest()\nassert digest(A) == digest(C) and digest(A) != digest(B)\nassert jaccard(A, B) == 0.5\nunique = {digest(s):s for s in (A, B, C)}\nassert len(unique) == 2\nfamily = {'a1':'bridge-report', 'a2':'bridge-report', 'b1':'road-report'}\nassigned = {doc: ('train' if name=='bridge-report' else 'validation')\n            for doc,name in family.items()}\nassert assigned['a1'] == assigned['a2']\nprint('exact_unique:', len(unique), 'jaccard:', jaccard(A,B))"
+            }
+          ]
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Documents before tokens",
+          "narration": "Trace immutable raw documents through licensing, cleaning, deduplication, split assignment and tokenizer versioning. A stable source identifier travels with the document.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Raw + source ID",
+              "Policy and quality filters",
+              "Deduplicate",
+              "Partition document families",
+              "Tokenize and shard"
+            ]
+          }
+        },
+        {
+          "title": "Jaccard threshold tradeoff",
+          "narration": "Compare an exact duplicate at similarity one with a related article at one half. Only the first is removed under a threshold of 0.8.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "exact duplicate",
+                "value": 100
+              },
+              {
+                "label": "related document",
+                "value": 50
+              },
+              {
+                "label": "threshold",
+                "value": 80
+              }
+            ]
+          }
+        },
+        {
+          "title": "Manifest invariant",
+          "narration": "A dataset version binds sources, deterministic transforms, and output hashes; without it a rerun can silently produce different training data.",
+          "visual": {
+            "type": "equation",
+            "text": "dataset_version = H(source_manifest | transforms | tokenizer | shard_hashes)"
+          }
+        }
+      ],
+      "lab": {
+        "title": "Audit a 100-document corpus",
+        "instructions": "Create 100 labeled documents with ten exact copies, ten lightly rewritten copies, and a family-level train/validation grouping. Implement canonical exact hashing and compare two near-duplicate thresholds (0.65 and 0.85). For each threshold report removals, false-positive losses, retained language distribution, train/validation family intersection, and serialized manifest hashes. Document how changing Unicode normalization alters code or formula examples.",
+        "success": "Re-running with the same data and seed produces identical output hashes; family intersection is empty; all excluded documents carry reasons; threshold effects are measured against labels."
+      },
+      "pitfalls": [
+        "Splitting overlapping chunks rather than source documents leaks duplicate spans across evaluation.",
+        "Aggressive normalization can erase important mathematical symbols or code details.",
+        "A MinHash signature is an estimator, not a certificate of semantic sameness.",
+        "Deduplication can disproportionately discard underrepresented writing styles; audit subgroup retention."
+      ],
+      "questions": [
+        {
+          "prompt": "Under word-bigram Jaccard similarity, two sets have four shared shingles and eight shingles in their union. What is their Jaccard value?",
+          "choices": [
+            "0.25",
+            "0.75",
+            "0.5",
+            "1.0"
+          ],
+          "answer": 2,
+          "reason": "Jaccard is intersection divided by union, hence 4/8 = 0.5."
+        },
+        {
+          "prompt": "What is the safest time to divide overlapping document windows into train and validation partitions?",
+          "choices": [
+            "After windowing, randomly per window",
+            "After training, based on loss",
+            "Only after vocabulary fitting",
+            "Before windowing, grouped by source document or family"
+          ],
+          "answer": 3,
+          "reason": "Assign entire families before chunking; otherwise overlapping windows can straddle splits."
+        },
+        {
+          "prompt": "What does a SHA-256 match on two whitespace-canonicalized documents establish under the stated policy?",
+          "choices": [
+            "Their canonicalized bytes match with overwhelming confidence",
+            "They must mean the same thing",
+            "They share at least 80 percent of shingles",
+            "They cannot contaminate any evaluation set"
+          ],
+          "answer": 0,
+          "reason": "The digest checks byte equality after the defined canonicalization; it says nothing about semantic similarity or separate evaluation rules."
+        },
+        {
+          "prompt": "Which artifact best supports reproducing exact training data shards?",
+          "choices": [
+            "Only a wall-clock duration",
+            "A pinned source and transform manifest with shard hashes",
+            "A plot of model loss",
+            "Only the GPU model number"
+          ],
+          "answer": 1,
+          "reason": "Versioned source inputs, transform parameters, tokenizer checksums and output hashes establish reproducibility."
+        }
+      ],
+      "resources": [
+        {
+          "title": "Lee et al. — Deduplicating Training Data Makes Language Models Better (2022)",
+          "url": "https://arxiv.org/abs/2107.06499"
+        },
+        {
+          "title": "The Pile: An 800GB Dataset of Diverse Text for Language Modeling",
+          "url": "https://arxiv.org/abs/2101.00027"
+        }
+      ],
+      "evidence_note": "Research grounding: cited deduplication and corpus papers; exact-hash and Jaccard toy calculations independently tested in local Python. Thresholds are instructional, not universal production defaults.",
+      "challenge": "Propose a source-family holdout and contamination audit for a multilingual assistant trained on customer-support documents. Explain how a near-duplicate filter could decrease memorization while also losing rare-language support, and design an empirical evaluation capable of distinguishing those effects."
+    },
+    {
+      "title": "Training Resource Accounting",
+      "status": "generated",
+      "objectives": [
+        "Estimate training FLOPs with a defensible approximation and explain omitted terms",
+        "Compute Adam mixed-precision training-state memory and sharding tradeoffs",
+        "Separate theoretical compute, effective throughput, wall-clock and end-to-end cost"
+      ],
+      "hook": "A proposed 7-billion-parameter run appears to fit a GPU according to an optimistic spreadsheet, but the first optimizer step triggers an out-of-memory error. The missing quantities were not mystery overhead: optimizer moments, gradients, activations and communication buffers were simply omitted. Training resource accounting is a falsifiable engineering budget, not a parameter-count slogan.",
+      "explanation": [
+        "Pretraining resource estimates begin with a model and token budget. A widely used dense-transformer approximation is training FLOPs C approximately 6 N D, where N is the number of non-embedding or trainable parameters according to the chosen convention and D is the number of training tokens. The factor six is a back-of-envelope convention: a forward matrix multiply costs roughly two operations per multiply-accumulate, and backward propagation is on the order of twice forward for the same large matrix operations. Attention at long context, vocabulary projections, embedding tables, recomputation, sparsity, optimizer kernels and padding make the real count differ. Record the counting convention; an estimate that silently uses 7 billion parameters in one row and 6.7 billion non-embedding parameters in another cannot be audited. FLOPs are an estimate of *work*, not seconds and not money.",
+        "For N=7 billion and D=100 billion, C=6*(7e9)*(100e9)=4.2e21 floating point operations. Suppose eight accelerators each sustain 100 teraFLOP/s on the actual training workload, not their advertised peak. Their combined effective rate is 8e14 FLOP/s. Idealized compute time is 4.2e21 / 8e14 = 5.25e6 seconds, about 60.8 days. This is already optimistic because the sustained-throughput assumption must include the communication and recomputation characteristics of the actual job. A 60 percent model-FLOP utilization measurement relative to suitable theoretical peak could yield a different sustained rate; do not apply the same utilization penalty twice. For any plan, measure achieved tokens per second on a representative microbenchmark and compare estimated delivered FLOPs per second against peak to expose the implied utilization.",
+        "GPU capacity often fails before raw FLOP capacity. Consider a common mixed-precision Adam arrangement with 2 bytes per low-precision model parameter, 2 bytes per low-precision gradient, 4 bytes per FP32 master parameter, and 8 bytes for Adam first and second FP32 moments: 16 bytes per parameter. Thus 7e9 parameters require approximately 112 GB of persistent states under this specific implementation, before activation storage, temporary workspace, communication buffers and fragmentation. Some frameworks maintain FP32 gradients, fused states, or BF16 moments instead, so this number is a *specified configuration*, not universal physics. With eight data-parallel devices, naïve replication uses that full state budget per device. ZeRO-1 partitions optimizer states, ZeRO-2 partitions gradients as well, and ZeRO-3 partitions model parameters too, with communication and runtime tradeoffs. An idealized equal partition of all 112 GB is 14 GB per device; actual peak must also budget all-gather buffers, activations and uneven shard placement.",
+        "Batching and sequence length affect memory and time even at fixed token count. Global token batch is microbatch_per_device times sequence_length times gradient_accumulation_steps times data_parallel_workers, provided each sample is fully packed and masks are appropriate. Increasing accumulation does not automatically reduce total training FLOPs, although it can trade throughput for peak activation memory. Activation checkpointing recomputes intermediate forward activations during backpropagation to reduce memory at the cost of additional operations. Padding wastes attention operations and changes effective tokens-per-step; a billing plan must distinguish processed padded tokens from useful loss-bearing tokens. Finally, convert compute duration into cost only after accounting for queue time, setup, failures, checkpoint writes, storage, network and realistic accelerator availability. A strong estimate reports ranges and sensitivity rather than a single misleadingly precise number.",
+        "Activation memory depends on implementation details that the simple sixteen-bytes-per-parameter optimizer estimate deliberately omits. A transformer retains or recomputes intermediate tensors needed for backward propagation. Sequence length, attention implementation, model width, layer count and microbatch size change activation pressure even when model parameter count is fixed. Activation checkpointing can reduce saved tensors but invokes extra forward recomputation. Attention kernels that avoid materializing a full quadratic attention matrix change memory scaling; nonetheless long contexts still increase compute and working-set pressure. In capacity planning, measure actual peak allocated and reserved bytes under representative sequence-length distributions rather than assuming that idle memory after parameter sharding is usable for activations.",
+        "Distributed training also incurs communication: a sharded optimizer must reconstruct or stream the parameter fragments needed for each layer, reduce or scatter gradients, and synchronize at stages chosen by the parallelism strategy. Interconnect bandwidth and collective latency can dominate small microbatches, and pipeline or tensor parallelism introduces further transfers. A theoretical FLOP budget estimates arithmetic work, not communication stalls, data-loader idle time, failed jobs, checkpoint serialization or slowest-rank stragglers. Record observed tokens per second, utilization and step-time percentiles; use those measures to forecast calendar duration with a retry margin. ZeRO-3 can make persistent model state fit while still failing at the first backward step due to activation or all-gather peaks. The governing test is a profiled full training step, not merely a parameter-memory spreadsheet."
+      ],
+      "examples": [
+        {
+          "title": "Compute and storage budget from first principles",
+          "walkthrough": "Plan N=7e9 dense parameters and D=1e11 tokens. Approximate C=6ND=4.2e21 FLOPs. At eight devices delivering a measured 100e12 useful training FLOP/s each, divide by 8e14: 5.25 million seconds, or 60.76 days. A per-device 80 GB card cannot hold 112 GB of replicated mixed-precision Adam persistent state, never mind activations. At an idealized ZeRO-3 eight-way shard, 112/8=14 GB of persistent state per device, but memory reserved for all-gather, activations and other components still must be quantified. The difference between 80 GB and 14 GB is not 'free capacity'; it arises by paying communication complexity to split state and by assuming uniform sharding."
+        },
+        {
+          "title": "Executable optimizer-state and throughput calculator",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "This small calculator intentionally requires the precision policy and device rate to be stated. It reports both replicated and perfectly sharded persistent state memory in decimal GB; GPU vendor labels may use different units. Assertions protect the numerical estimates and demonstrate that halving measured sustained throughput doubles idealized compute time. For real capacity planning compare these results with profiler-measured peak allocations and observed training step times rather than projecting peak silicon TFLOPs. Treat this estimator as a lower-bound accounting exercise, not a hardware benchmark. Recalculate for measured sustained throughput, then separately estimate activation peaks and collective communication, because parameter sharding alone does not make the step executable. Test a throughput-halving scenario and a microbatch-doubling scenario: the former changes compute time, while the latter changes activation pressure. Keep the program assertions as checks on arithmetic and units, and validate the resulting capacity plan with a profiler trace before committing to an accelerator purchase."
+            },
+            {
+              "type": "code",
+              "text": "def training_budget(params, tokens, devices, device_tflops, bytes_per_param=16):\n    assert params > 0 and tokens > 0 and devices > 0 and device_tflops > 0\n    flops = 6 * params * tokens\n    seconds = flops / (devices * device_tflops * 1e12)\n    replicated_gb = params * bytes_per_param / 1e9\n    sharded_gb = replicated_gb / devices\n    return flops, seconds, replicated_gb, sharded_gb\n\nf, t, replicated, sharded = training_budget(7e9, 1e11, 8, 100)\nassert f == 4.2e21\nassert abs(t - 5.25e6) < 1e-6\nassert replicated == 112 and sharded == 14\n_, slower, _, _ = training_budget(7e9, 1e11, 8, 50)\nassert slower == 2*t\nprint('FLOPs:', f, 'days:', round(t/86400, 2),\n      'replicated GB:', replicated, 'sharded GB:', sharded)"
+            }
+          ]
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Count operations, not GPUs",
+          "narration": "First estimate the dense-training work from parameters and tokens; then divide by measured delivered throughput, not nominal accelerator peak.",
+          "visual": {
+            "type": "equation",
+            "text": "C ~= 6 N D; time ~= C / measured FLOP/s"
+          }
+        },
+        {
+          "title": "Where optimizer memory goes",
+          "narration": "For a particular mixed-precision Adam design, weights, gradients, master weights and two moments use 2, 2, 4 and 8 bytes per parameter respectively.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "weights",
+                "value": 2
+              },
+              {
+                "label": "gradients",
+                "value": 2
+              },
+              {
+                "label": "master weights",
+                "value": 4
+              },
+              {
+                "label": "Adam moments",
+                "value": 8
+              }
+            ]
+          }
+        },
+        {
+          "title": "Sharding tradeoff",
+          "narration": "Moving from replicated state to sharded state reduces resident memory at the price of communication and transient buffers.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Replicated Adam states",
+              "ZeRO-1 optimizer partition",
+              "ZeRO-2 gradient partition",
+              "ZeRO-3 parameter partition"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Design an eight-device feasibility report",
+        "instructions": "Build a spreadsheet or Python function varying measured TFLOP/s per device, tokens and model size. Include 16-byte mixed Adam states, an explicitly estimated activation budget, replicated versus ZeRO-3 state, and an assumed failure/checkpoint overhead. Reconcile predicted step time with an actual timing trace from a tiny model, then explain discrepancies. Show a case where a computation budget is feasible but device memory is not.",
+        "success": "Every row records units and precision assumptions; both FLOP and persistent-memory calculations reproduce known hand checks; estimates separate measured values from assumptions."
+      },
+      "pitfalls": [
+        "The 6ND training FLOP formula omits architecture-specific costs and is inappropriate for some sparse or very long-context designs.",
+        "TFLOP/s is a rate, whereas TFLOPs is a count; confusing them destroys time estimates.",
+        "Do not treat ZeRO-3 ideal shard memory as peak allocated device memory.",
+        "Adding activation checkpointing can save memory while increasing total compute and wall-clock duration."
+      ],
+      "questions": [
+        {
+          "prompt": "Under the 6ND approximation, what is the training compute for N=7 billion and D=100 billion tokens?",
+          "choices": [
+            "4.2e19 FLOPs",
+            "7e20 FLOPs",
+            "4.2e21 FLOPs",
+            "6e23 FLOPs"
+          ],
+          "answer": 2,
+          "reason": "6 × 7e9 × 1e11 = 4.2e21 operations."
+        },
+        {
+          "prompt": "Which persistent state is missing when a budget counts only 2-byte BF16 weights and 2-byte gradients for FP32-master Adam?",
+          "choices": [
+            "Only tokenized documents",
+            "Only decoded logits",
+            "The tokenizer merge table",
+            "FP32 master weights and two optimizer moments"
+          ],
+          "answer": 3,
+          "reason": "The illustrated mixed-precision Adam configuration retains an FP32 copy and first and second moment state."
+        },
+        {
+          "prompt": "Eight workers each sustain 100 TFLOP/s and total work is 4.2e21 FLOPs. What is the ideal compute-only duration?",
+          "choices": [
+            "5.25 million seconds",
+            "525 seconds",
+            "52,500 seconds",
+            "42 million seconds"
+          ],
+          "answer": 0,
+          "reason": "4.2e21 / (8 × 100e12) = 5.25e6 seconds."
+        },
+        {
+          "prompt": "What is the key caveat of using 112/8=14 GB as a ZeRO-3 memory estimate?",
+          "choices": [
+            "Adam cannot be sharded",
+            "It excludes activations and transient/communication allocations",
+            "The estimate is measured from hardware logs",
+            "It assumes 112 decimal bytes per weight"
+          ],
+          "answer": 1,
+          "reason": "Fourteen GB is an ideal persistent-state partition, not a measured per-device peak."
+        }
+      ],
+      "resources": [
+        {
+          "title": "Hoffmann et al. — Training Compute-Optimal Large Language Models (2022)",
+          "url": "https://arxiv.org/abs/2203.15556"
+        },
+        {
+          "title": "DeepSpeed ZeRO Tutorial — partitioning training state",
+          "url": "https://www.deepspeed.ai/tutorials/zero/"
+        }
+      ],
+      "evidence_note": "Verified primary source abstracts/tutorial: Hoffmann et al. on compute-optimal training; DeepSpeed ZeRO stages. 6ND, 16-byte configuration and arithmetic are presented as explicitly conditional approximations; Python numerical assertions were executed locally.",
+      "challenge": "Assess a training proposal that assumes 40 percent utilization, eight 80-GB accelerators and a six-week deadline for 100 billion tokens on a 7B model. State the implied delivered throughput required, compare it with the assumed budget, propose model or data budget changes, and identify how activation memory, network topology and checkpoint frequency could overturn the optimistic estimate."
+    }
+  ]
+}

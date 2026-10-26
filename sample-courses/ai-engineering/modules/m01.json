@@ -1,0 +1,143 @@
+{
+  "title": "Mathematical and Statistical Foundations",
+  "lessons": [
+    {
+      "title": "Probability, Loss and the Learning Objective",
+      "status": "generated",
+      "objectives": [
+        "Derive negative log likelihood from conditional probability",
+        "Compute a baseline cross-entropy and compare it to perplexity",
+        "Diagnose data leakage and measurement traps"
+      ],
+      "hook": "Imagine a system that predicts the next ticket category correctly most of the time but assigns almost zero probability to rare urgent incidents. Accuracy looks healthy, yet its mistakes could be very costly. How should an AI engineer decide what a model has actually learned?",
+      "explanation": [
+        "A language model does not begin with an instruction to produce a sensible paragraph. It learns a probability distribution over possible next tokens given a prefix. If the vocabulary has V symbols, the model produces V real-valued logits, converts them into nonnegative probabilities by softmax, and chooses or samples a token. For token t with logit z_t, the conditional probability is exp(z_t) divided by the sum of exp(z_j) over all vocabulary tokens. Numerically stable implementations subtract the largest logit before taking exponentials. That subtraction changes no probability because the common scaling factor cancels. This connects model architecture to an observable prediction problem.",
+        "Suppose a training sequence contains tokens x_1 through x_T. Under an autoregressive factorization, its probability is the product over positions of p(x_t | x_1,...,x_(t-1)). Products of many probabilities become tiny and awkward to optimize, so take the negative natural logarithm. The sequence negative log likelihood is L = -sum_t log p(x_t | preceding tokens). Divide by the number of predicted tokens to obtain mean token loss. If one correct token is assigned probability 0.8, its loss is about 0.223 nats; if assigned probability 0.01, its loss jumps to about 4.605 nats. The loss punishes confident mistakes substantially more than ordinary classification accuracy does.",
+        "Cross-entropy follows the same idea when the training target is represented as a one-hot distribution: H(q,p) = -sum_j q_j log p_j, where q has mass one on the observed token. For a dataset with N predictions, the empirical training objective averages these values. The model has no guarantee of understanding meaning simply because this numerical loss decreases; it could memorize patterns, exploit duplicated records or learn correlations that fail on deployment. The evaluation distribution and split design are part of the scientific claim. A lower training loss is not automatically a better real-world AI system.",
+        "Perplexity is exp(mean negative log likelihood) when loss uses the natural logarithm. A mean loss of ln(4) corresponds to perplexity 4. Intuitively it resembles the effective number of equally likely alternatives, although real distributions are rarely uniform. Compare perplexities only when tokenization and evaluation data are comparable. Changing the tokenizer changes token boundaries and the number of predictions, so a naive cross-model comparison may mislead. For production systems also separate task utility, latency, calibration, safety, and operating cost from predictive loss.",
+        "A reliable experiment starts with a simple baseline. For incident-category prediction, measure a constant-category baseline, a frequency-based probabilistic baseline and a trainable model on the same held-out incidents. Report log loss, class-wise recall, confusion matrix and calibration. Split by time or by incident source when chronological drift or duplicate tickets would make random splitting leak future information. Document data provenance. If model selection repeatedly uses the same test set, that set gradually becomes part of training decisions; preserve an untouched final evaluation split.",
+        "The learning objective also determines what the model overlooks. Standard maximum likelihood gives more aggregate weight to patterns that occur often in the training set. A rare but critical security event may contribute little to the average even if missing it has enormous downstream cost. This is why class weighting, risk-sensitive evaluation, human escalation and operational monitoring exist. They are engineering decisions outside the bare next-token likelihood formula. Before modifying the loss, define the target behavior and quantify what errors the system can tolerate.",
+        "Consider why choosing the training objective is a model-design decision rather than an afterthought. Negative log-likelihood rewards probability assigned to the observation, not just whether the top-ranked class is correct. A model assigning 0.51 to the observed label receives a much larger loss than one assigning 0.99; this supplies a gradient even for correctly classified examples. The calibration of those probabilities also matters when a downstream decision uses a threshold. Under distribution shift, low training loss cannot establish that probabilities are reliable on deployment data. A useful falsification experiment partitions examples by time or source, checks calibration and out-of-distribution error, and compares against a simple constant predictor. Never choose your final evaluation threshold after repeatedly inspecting a protected test set: that itself turns the test set into a tuning instrument."
+      ],
+      "examples": [
+        {
+          "title": "Hand-computing token loss",
+          "walkthrough": "A vocabulary contains three possible next words. For the observed token A, a model outputs probabilities A=0.7, B=0.2 and C=0.1. The negative log likelihood is -ln(0.7), approximately 0.357 nats. Now consider an otherwise similar prediction where the model assigns A only 0.02 probability. Its penalty is -ln(0.02), approximately 3.912. The second prediction is more than ten times as costly under log loss. If these are the two predictions in one sequence, the mean is (0.357 + 3.912)/2 = 2.1345. The sequence perplexity is exp(2.1345), approximately 8.45. This illustrates why a high average accuracy cannot hide severe confident errors from cross-entropy."
+        },
+        {
+          "title": "Checking a model against a baseline",
+          "walkthrough": "An evaluation sample contains ten incident categories: seven are Routine, two are Access and one is Security. A majority-class predictor achieves 70% accuracy by always saying Routine but assigns zero probability to the rare categories, resulting in infinite log loss without smoothing. Apply additive smoothing to produce positive probabilities for each class, then compute average negative log likelihood for the ten actual labels. Compare that to a second predictor assigning a meaningful probability to Security even when it is rare. A reader should see why comparing only accuracy obscures confidence and minority-class quality. Keep both predictors fixed before looking at the test labels."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "From scores to probabilities",
+          "narration": "Three logits are converted into a probability distribution whose values sum to one.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "A",
+                "value": 70
+              },
+              {
+                "label": "B",
+                "value": 20
+              },
+              {
+                "label": "C",
+                "value": 10
+              }
+            ]
+          }
+        },
+        {
+          "title": "Confident mistakes cost more",
+          "narration": "The logarithmic penalty rises quickly when the observed event receives a tiny predicted probability.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "p=0.7",
+                "value": 36
+              },
+              {
+                "label": "p=0.02",
+                "value": 391
+              }
+            ]
+          }
+        },
+        {
+          "title": "Split before tuning",
+          "narration": "Training and evaluation should be separated before model selection, especially for duplicated or time-dependent records.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Past incidents",
+              "Train/validation",
+              "Untouched future test"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Run a log-loss experiment",
+        "instructions": "In Python, create a list of actual outcomes [0,1,0,2] and two different arrays of three-class prediction probabilities, with each row summing to one. Calculate -log of the probability assigned to each actual outcome and average the four values. For each outcome also record the top-probability class. Compare model ordering under accuracy and log loss. Perturb a correct answer from confidence 0.6 to 0.99 and a wrong answer from confidence 0.4 to 0.01. Explain why calibration may matter even with unchanged predictions.",
+        "success": "Check that each row sums to one, that every selected probability is strictly positive, and that the higher-confidence wrong prediction receives a larger penalty; report both metrics."
+      },
+      "pitfalls": [
+        "Confusing token-level loss with end-task usefulness",
+        "Comparing perplexity between different tokenizers without caveats",
+        "Allowing duplicated records to appear in both train and test"
+      ],
+      "questions": [
+        {
+          "prompt": "For an observed token predicted with probability 0.25, what is its negative log likelihood in nats?",
+          "choices": [
+            "Approximately 1.386",
+            "Approximately 0.250",
+            "Exactly 4.000",
+            "Approximately 0.693"
+          ],
+          "answer": 0,
+          "reason": "The loss is -ln(0.25)=ln(4), around 1.386."
+        },
+        {
+          "prompt": "Why can a 90% accurate classifier still have poor log loss?",
+          "choices": [
+            "Its predictions are slow",
+            "It can assign tiny probability to its rare mistakes",
+            "It is too well calibrated",
+            "Its classes are alphabetically sorted"
+          ],
+          "answer": 1,
+          "reason": "Log loss is sensitive to the probability assigned to the observed event, particularly confident errors."
+        },
+        {
+          "prompt": "Which comparison of language-model perplexity is most defensible?",
+          "choices": [
+            "Two unrelated test sets",
+            "Two models with different vocabulary token counts only",
+            "Two models evaluated under the same tokenizer and test data",
+            "Two different natural languages with unrelated corpora"
+          ],
+          "answer": 2,
+          "reason": "Tokenization and evaluation distributions must be aligned before interpreting the metric."
+        }
+      ],
+      "challenge": "Design an evaluation plan for a multilingual support-ticket classifier. Specify the prediction unit, loss, test-set construction and two operational failure measures. Argue which errors the average likelihood objective does not represent adequately, and explain how an evaluator could detect hidden leakage.",
+      "resources": [
+        {
+          "title": "Stanford CS336 course and assignments",
+          "url": "https://cs336.stanford.edu/"
+        },
+        {
+          "title": "Stanford CS224N course",
+          "url": "https://web.stanford.edu/class/cs224n/"
+        }
+      ],
+      "evidence_note": "Sources used for curriculum scope and technical reading leads; this lesson is an original derivation, not a reproduction of university lecture material."
+    }
+  ]
+}

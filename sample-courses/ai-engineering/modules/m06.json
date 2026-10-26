@@ -1,0 +1,262 @@
+{
+  "title": "Inference Systems",
+  "lessons": [
+    {
+      "title": "Batching and Latency",
+      "status": "generated",
+      "objectives": [
+        "Distinguish prompt prefill from autoregressive decoding and measure TTFT, TPOT, throughput and queue delay",
+        "Simulate admission and token-level scheduling under a concurrency bound and expose head-of-line blocking",
+        "Construct a load test that captures latency percentiles and KV-cache capacity rather than relying on average tokens/s"
+      ],
+      "hook": "A serving benchmark reports 3,000 output tokens per second, yet a customer waits ten seconds before the first token. Is the system fast or slow? Both statements may be true: throughput rewards batching while user experience depends on admission, prompt prefill and decode scheduling. This lesson examines the trade-off by implementing a deliberately simple scheduler and asking where it fails.",
+      "explanation": [
+        "Language-model serving has two very different compute phases. During prefill the model processes all prompt tokens and materializes key/value states for attention. Prefill often contains substantial parallel matrix work. During autoregressive decode each active request produces one token step at a time while reusing cached keys and values. Depending on batch size, context length, model, and hardware, decoding can be more dependent on memory movement than prefill. The scheduler therefore has at least two scarce budgets: accelerator time and KV-cache residency. A single reported tokens-per-second number conceals which phase dominated, whether prompts were truncated, and whether requests waited in a queue. Measure time to first token (TTFT), time per output token (TPOT, ideally calculated per request), end-to-end latency and output tokens/s. Do not conflate TPOT and the reciprocal of aggregate throughput when multiple sequences are decoding concurrently.",
+        "Consider static batching: a server waits for a fixed set of requests, computes them together, and frees batch capacity only when the longest generation ends. Short generations may complete their mathematical work early but cannot always release slots. Continuous or iteration-level batching admits new requests as capacity becomes available between decode iterations. It improves utilization under varied request lengths, but an admission policy still faces difficult choices. A long-prompt request can stall tokens from existing short requests if prefills are scheduled without preemption. Priority queues can reduce latency for preferred users but starve low-priority traffic. Every scheduling comparison needs an explicit service-time model, admission rule and workload distribution; two schedulers with different admission policies are not comparable based on one contrived trace.",
+        "To model latency, let a request arrive at a_i, emit its first token at f_i, and complete at c_i. Then TTFT_i=f_i-a_i and end-to-end latency_i=c_i-a_i. Output throughput over observation interval [t0,t1] equals total emitted tokens divided by (t1-t0). Request throughput is completed requests divided by that interval and is not interchangeable with output token throughput. Report a warm-up interval, offered load, admitted requests, errors, timeouts and token distributions. Percentiles are computed over per-request latencies, not by taking a percentile of per-minute averages. Queueing theory gives a warning: as utilization approaches one, bursty arrivals can produce rapidly growing tail latency even when mean service capacity exceeds mean arrival rate. Little's law L=λW applies to a stable system with consistently defined population and time horizon; it is not an excuse to estimate user latency from a peak GPU kernel benchmark.",
+        "KV-cache storage couples scheduling to architecture. For a full resident cache under a simple contiguous assumption, bytes ≈ 2 × layers × KV heads × head dimension × cached tokens × concurrent requests × bytes per value. Sharing or paging changes allocation waste and may add metadata. PagedAttention uses block-based cache management to reduce fragmentation and enable sharing, but does not eliminate the actual key/value tensor data. Capacity estimates must reserve memory for model weights, runtime activations, workspaces and fragmentation; placing weight bytes and KV bytes in the same headline without noting head-count assumptions will mislead. Report both measured peaks and the model-based calculation.",
+        "An experienced serving engineer ends with a falsification benchmark. Load short and long prompts together, vary offered concurrency, record p50/p95/p99 TTFT and TPOT, include cancelled requests and verify that completed token counts match emitted trace events. Under sustained overload, choose an explicit admission-control or backpressure policy rather than silently allowing unlimited queues. The toy simulator below treats prefill as an indivisible duration and decode steps as equally priced; it intentionally omits network overhead, parallel GPU execution and real kernel timing. Its value is to make admission assumptions inspectable, not to predict production latency. Replace its simple costs with measurement-based distributions before forecasting a deployment."
+      ],
+      "examples": [
+        {
+          "title": "Trace a mixed-length queue",
+          "walkthrough": "Three requests arrive: A at 0 with a prefill cost of two ticks and four decode tokens, B at 0 with prefill cost one and two decode tokens, and C at tick three with prefill cost one and two decode tokens. A and B are admitted first into capacity two. Prefill ends at tick three. B finishes after decode steps at ticks four and five, while A has two tokens left. C begins prefill at tick five; this simplistic scheduler blocks active decoding for one tick. At tick six C joins the batch, and A and C finish at tick eight. Their TTFT values are 4, 4 and 4 ticks after respective arrivals (C first token at tick seven). This is not a realistic GPU time model; it isolates head-of-line behavior. Ask which implementation detail changes first-token timing when prefill is chunked."
+        },
+        {
+          "title": "Executable scheduling experiment",
+          "walkthrough": "Run the standard-library Python example below. It admits requests in arrival order, models indivisible prefill time and decrements remaining output tokens on each decode iteration. Assert completion and first-token times, then vary the capacity from two to one, insert a very long prefill and compare the resulting tail TTFT. The scheduler reports a trace instead of an average-only metric, permitting verification of each claim.\nfrom dataclasses import dataclass\n@dataclass\nclass Request:\n    name: str\n    arrival: int\n    prefill: int\n    decode: int\n\ndef schedule(requests, capacity):\n    time = 0\n    pending = list(requests)\n    active = []\n    first = {}\n    complete = {}\n    trace = []\n    while pending or active:\n        # Admit only requests already arrived; prefill is an indivisible demonstration step.\n        while pending and pending[0].arrival <= time and len(active) < capacity:\n            r = pending.pop(0)\n            active.append([r, r.decode])\n            time += r.prefill\n            if not r.decode:\n                first[r.name] = time\n        if active:\n            time += 1\n            for r, left in active:\n                first.setdefault(r.name, time)\n            trace.append((time, tuple(r.name for r, left in active)))\n            for item in active:\n                item[1] -= 1\n            finished = [item for item in active if item[1] == 0]\n            for r, left in finished:\n                complete[r.name] = time\n            active = [item for item in active if item[1] > 0]\n        elif pending:\n            time = max(time, pending[0].arrival)\n    return first, complete, trace\n\nr = [Request('A',0,2,4),Request('B',0,1,2),Request('C',3,1,2)]\nfirst, done, trace = schedule(r,2)\nassert first == {'A':4,'B':4,'C':7}, first\nassert done == {'B':5,'A':8,'C':8}, done\nassert len(trace) == 4\nprint('first',first,'completed',done,'steps',trace)\n"
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Two serving phases",
+          "narration": "Prefill transforms a prompt into cached attention state; decode emits new tokens iteratively.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Prompt → prefill",
+              "KV state allocated",
+              "Decode iteration",
+              "Token streamed"
+            ]
+          }
+        },
+        {
+          "title": "Admission versus generation",
+          "narration": "A free concurrency slot is necessary but not sufficient if cache capacity is exhausted.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "Requests waiting",
+                "value": 3
+              },
+              {
+                "label": "Concurrent slots",
+                "value": 2
+              },
+              {
+                "label": "Cache budget pressure",
+                "value": 4
+              }
+            ]
+          }
+        },
+        {
+          "title": "Measure per request",
+          "narration": "Mark arrival, first token and completion timestamps separately.",
+          "visual": {
+            "type": "equation",
+            "text": "TTFT = first_token_time - arrival_time; latency = completion - arrival"
+          }
+        }
+      ],
+      "lab": {
+        "title": "Design a serving SLO experiment",
+        "instructions": "Run the scheduler. Add a fourth request with a longer prefill, compare concurrency 1 and 2, and log per-request TTFT, completion latency, queue occupancy, throughput and starvation risks. Define SLO thresholds and explain which omitted GPU details could reverse the result.",
+        "success": "Submit reproducible traces for both capacities, a calculation of p95 TTFT over a specified workload, and a written distinction between synthetic scheduling ticks and measured accelerator milliseconds."
+      },
+      "questions": [
+        {
+          "prompt": "What does TTFT include?",
+          "choices": [
+            "Only model weight loading",
+            "Average seconds between any two requests",
+            "Delay from arrival until first generated token",
+            "Only network serialization"
+          ],
+          "answer": 2,
+          "reason": "TTFT begins at request arrival and includes queue, prefill, and first output token delays."
+        },
+        {
+          "prompt": "What problem does continuous batching primarily address?",
+          "choices": [
+            "Making every response deterministic",
+            "Eliminating KV storage requirements",
+            "Removing prompt prefill",
+            "Admitting work as decode slots free rather than waiting for a whole static batch"
+          ],
+          "answer": 3,
+          "reason": "Iteration-level admission can reclaim capacity from finished sequences."
+        },
+        {
+          "prompt": "Which quantity is NOT equal to aggregate output token throughput?",
+          "choices": [
+            "Reciprocal of an individual request TPOT when multiple requests decode in parallel",
+            "Total output tokens divided by observation time",
+            "Combined emitted tokens per second",
+            "Sum of per-request token outputs divided by elapsed interval"
+          ],
+          "answer": 0,
+          "reason": "Parallel active sequences can produce many aggregate output tokens for each decode step."
+        }
+      ],
+      "pitfalls": [
+        "Using throughput alone to claim interactive responsiveness",
+        "Ignoring cache pressure in concurrency planning",
+        "Treating toy prefill ticks as GPU wall-clock milliseconds"
+      ],
+      "challenge": "Design an admission policy for a mixed traffic server where half the requests have 20 input tokens and half have 16,000. Include SLOs, fairness and cancellation behavior, model explicit memory limits, and compare a no-priority scheduler with a prefill-chunked alternative. Identify at least one workload under which your preferred policy fails.",
+      "resources": [
+        {
+          "title": "PagedAttention (SOSP 2023)",
+          "url": "https://doi.org/10.1145/3600006.3613165"
+        },
+        {
+          "title": "vLLM open source serving engine",
+          "url": "https://github.com/vllm-project/vllm"
+        }
+      ],
+      "evidence_note": "PagedAttention publication and code repository inspected live on 2026-10-25; scheduler, timings and illustrative TTFT traces are original toy examples, not performance measurements or claims from that paper."
+    },
+    {
+      "title": "Quantization and Memory",
+      "status": "generated",
+      "objectives": [
+        "Decompose inference memory into weights, quantization metadata, active KV cache and runtime overhead",
+        "Apply grouped symmetric quantization and compute reconstruction error and memory tradeoffs",
+        "Plan accuracy, throughput and latency evaluations separately for weight-only and weight-plus-activation quantization"
+      ],
+      "hook": "An 8-billion-parameter model is often described as an eight-gigabyte problem when converted to 8-bit weights. An engineer reserves eight gigabytes on a GPU and the service crashes during a long conversation. The model weights were only the starting line: cache residency, scales, workspace, activations and runtime buffers also consume memory. Quantization changes arithmetic representation and performance behavior; it does not repeal the laws of serving capacity.",
+      "explanation": [
+        "Quantization maps values from a higher-precision representation to a lower-precision codebook, trading representational fidelity for compact storage and potentially more efficient arithmetic. For simple symmetric uniform quantization, a real value x is mapped to integer q=clip(round(x/s),qmin,qmax) and reconstructed as x̂=sq. Scale s may be assigned globally, per tensor, per output channel or per small block. Per-channel and group-wise scales can preserve small-valued channels beside large outliers but increase metadata storage and kernel bookkeeping. Asymmetric schemes use a zero-point; they are useful for skewed ranges but complicate arithmetic. Quantization error is not only absolute weight error: a slight perturbation in attention logits can change token probabilities, especially near competing output tokens. Different layer sensitivities justify mixed precision or excluding a few vulnerable layers from compression.",
+        "Weight-only quantization, written for example W4A16, keeps activations at a higher precision but compresses weights; the serving kernel typically dequantizes or multiplies using specialized instructions. W8A8 quantizes weights and activations, which can reduce memory movement and improve arithmetic on suitable hardware. Whether W4A16 is faster than W8A8 depends on microarchitecture, batch size, matrix dimensions, kernel availability, packing and dequantization overhead. Precision labels do not alone promise a speedup. For models with extremely low batch size, reducing weights moved from memory may dominate; for larger batches, matrix compute utilization and supported FP8 arithmetic may become decisive. Hardware support and numerical behavior must be checked for the exact accelerator and library version; a successful file conversion is not proof that the runtime uses an efficient low-bit kernel.",
+        "Weight bytes approximate P × b_w/8 for P parameters and b_w bits per parameter, ignoring padding. Metadata matters. If each group of g weights uses a 16-bit scale, scale overhead is roughly ceil(P/g) × 2 bytes, before any zero points or per-layer descriptor arrays. Example: seven billion parameters at 4 bits require 3.5 billion packed weight bytes plus approximately 109.375 million bytes of 16-bit scales with groups of 128. Convert decimal bytes to binary GiB carefully; 3.5 billion bytes is about 3.26 GiB. This still omits aligned storage and layer workspaces. A common planning failure is to quote 3.5 GB as the *total* deployment requirement, ignoring that the model may require separate BF16 embeddings, norms, a runtime graph and cache capacity for concurrent requests.",
+        "KV-cache memory should be separately estimated using 2 × L × Hkv × Dhead × T × B × bytes_per_cached_value. Here L is layers, Hkv is KV heads (not necessarily query heads), Dhead is head width, T is retained tokens per sequence, and B is concurrent sequences. For 32 layers, 8 KV heads, dimension 128, 4,096 tokens, two simultaneous sequences and 16-bit cache entries, the result is 1,073,741,824 bytes = 1024 MiB. Halving cache storage to 8-bit may roughly halve raw cache tensor bytes, but metadata, quantization scales, chunking and kernel requirements may alter actual allocation. In practice token length varies across users, prefix sharing matters, and cache paging can reduce fragmentation. Reserve the peak rather than mean context length when designing OOM-safe admission.",
+        "A robust post-training quantization evaluation has three independent axes. First, quality: task-specific exactness, calibration, long-context retrieval, multilingual behavior, adversarial inputs and output stability. Second, performance: per-request TTFT and TPOT as well as aggregate tokens/s across realistic batch sizes and prompt lengths. Third, reliability: OOM events, long-tail cache use, kernel fallbacks, numerical NaNs and deployment-version compatibility. Compare against an unquantized baseline at the same prompt and generation budgets; avoid claims derived from cherry-picked perplexity alone. Examine quality by slice because a small overall average loss can hide severe failures on rare formatting or numeric tasks. The Python code provides an intentionally educational symmetric quantizer and exact memory estimate. Production quantizers involve more sophisticated calibration, packing and supported kernels than this baseline."
+      ],
+      "examples": [
+        {
+          "title": "Plan weight, scale and KV memory",
+          "walkthrough": "A seven-billion-parameter W4A16 model has 3.5 billion packed weight bytes, before 16-bit scales every 128 weights. That is 3,500,000,000/1,073,741,824 ≈ 3.26 GiB. Approximately 54,687,500 groups cost 109,375,000 additional bytes, around 104.3 MiB. Now add the separate KV cache: two sequences of 4,096 tokens each, with 32 layers, eight KV heads, 128 dimensions and two bytes per element, use 1024 MiB. The total for these three line items is about 4.36 GiB, and still excludes activation tensors, workspaces, buffers and allocator overhead. This is a budget lower bound, not a safe installed-GPU requirement."
+        },
+        {
+          "title": "Group quantization with a falsifiable test",
+          "walkthrough": "Take weights [-1,-0.5,0,0.6,1], using a signed educational 4-bit range [-7,+7]. A symmetric scale is max(abs(weight))/7 = 1/7. After rounding and clipping, codes [-7,-4,0,4,7] reconstruct approximately [-1,-0.5714,0,0.5714,1]. Absolute error peaks near 0.0714 at -0.5. Run the code below and verify both integer codes and restored float values. Then try an outlier value ten times the others; the same group scale causes small weights to collapse toward zero. Test smaller groups to see whether the error decreases at the expense of more stored scales.\nimport math\n\ndef memory_bytes(params, weight_bits, layers, kv_heads, head_dim, tokens, batch, kv_bits=16, group=128):\n    packed = math.ceil(params*weight_bits/8)\n    groups = math.ceil(params/group)\n    scales = groups*2  # assumed 16-bit symmetric scale per group\n    cache = 2*layers*kv_heads*head_dim*tokens*batch*kv_bits//8\n    return packed,scales,cache\n\np,s,c=memory_bytes(7_000_000_000,4,32,8,128,4096,2)\nassert p==3_500_000_000\nassert s==109_375_000\nassert c==1_073_741_824  # bytes: 1024 MiB\nprint('weight GiB',p/2**30,'scale MiB',s/2**20,'KV MiB',c/2**20)\n\ndef symmetric_int4(values):\n    # Educational symmetric signed 4-bit range [-7,7], not a kernel-specific packing format.\n    scale=max(abs(x) for x in values)/7 if any(values) else 1\n    codes=[max(-7,min(7,round(x/scale))) for x in values]\n    return codes,[q*scale for q in codes],scale\nv=[-1.0,-0.5,0,0.6,1.0]\nq,restored,scale=symmetric_int4(v)\nassert q==[-7,-4,0,4,7]\nassert abs(restored[1]+4/7)<1e-12\nprint('codes',q,'max absolute error',max(abs(a-b) for a,b in zip(v,restored)))\n"
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Where memory goes",
+          "narration": "Count packed weights, group scales, KV cache, workspaces and activation buffers separately.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Packed weights",
+              "Quantization scales",
+              "KV cache",
+              "Runtime workspace"
+            ]
+          }
+        },
+        {
+          "title": "Precision is a system choice",
+          "narration": "More aggressive bits do not guarantee faster operations on every GPU.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "BF16 weight bits",
+                "value": 16
+              },
+              {
+                "label": "INT8 weight bits",
+                "value": 8
+              },
+              {
+                "label": "INT4 weight bits",
+                "value": 4
+              }
+            ]
+          }
+        },
+        {
+          "title": "Quantization error",
+          "narration": "Compare each value to reconstructed value after rounding and clipping.",
+          "visual": {
+            "type": "equation",
+            "text": "q = clip(round(x / s), qmin, qmax); reconstructed x = s*q"
+          }
+        }
+      ],
+      "lab": {
+        "title": "Select a memory-safe inference configuration",
+        "instructions": "Run the Python memory calculator, vary context length between 1,024 and 16,384 tokens, compare batch sizes 1, 2 and 8, and estimate a reasonable workspace margin. Measure reconstruction error for groups with and without an outlier; provide a slice-specific quality test matrix for your proposed deployment.",
+        "success": "A table includes weights, scales, KV cache and explicitly unknown runtime overhead for each configuration. The final recommendation is conditional on a specific hardware precision/kernel and quality-evaluation pass."
+      },
+      "questions": [
+        {
+          "prompt": "Which term scales linearly with resident cached token count in the simple estimate?",
+          "choices": [
+            "Model parameter count",
+            "KV-cache tensor bytes",
+            "Number of weight scales",
+            "Weight tensor storage"
+          ],
+          "answer": 1,
+          "reason": "Cached key/value states grow proportionally with retained sequence tokens."
+        },
+        {
+          "prompt": "Which statement about W4A16 is correct?",
+          "choices": [
+            "Both weights and activations are always four-bit",
+            "Weight scales can never use additional memory",
+            "Activations are represented at 16-bit precision while weights use 4-bit representation",
+            "Every GPU executes W4A16 faster than W8A8"
+          ],
+          "answer": 2,
+          "reason": "Weight-only four-bit compression does not imply four-bit activations or guaranteed performance gains."
+        },
+        {
+          "prompt": "Why can per-group quantization outperform global-scale quantization in accuracy?",
+          "choices": [
+            "It removes rounding entirely",
+            "It increases model parameter count",
+            "It bypasses all kernel constraints",
+            "It provides locally appropriate scales for regions with different ranges"
+          ],
+          "answer": 3,
+          "reason": "Local scales prevent a single outlier from setting resolution for every other group."
+        }
+      ],
+      "pitfalls": [
+        "Confusing decimal GB and binary GiB",
+        "Using query-head count instead of KV-head count for grouped-query attention",
+        "Assuming compressed weights imply compressed activations or caches",
+        "Treating low-bit storage support as low-bit compute acceleration"
+      ],
+      "challenge": "Propose two quantized configurations for a seven-billion-parameter assistant serving mixed long-context traffic. Estimate packed weights, group metadata and worst-case KV cache. Specify whether each configuration has a fallback to BF16 and how quality slices will detect regressions in arithmetic and long-form retrieval. Explain which candidate you would reject under a strict p95 latency SLO.",
+      "resources": [
+        {
+          "title": "TensorRT-LLM quantization documentation",
+          "url": "https://nvidia.github.io/TensorRT-LLM/latest/features/quantization.html"
+        },
+        {
+          "title": "PyTorch TensorRT quantization guide",
+          "url": "https://docs.pytorch.org/TensorRT/user_guide/shapes_precision/quantization.html"
+        }
+      ],
+      "evidence_note": "NVIDIA TensorRT-LLM and PyTorch/TensorRT precision documentation checked live 2026-10-25. Memory figures and toy quantizer are independent worked examples with explicit simplified assumptions; no GPU benchmarks were executed."
+    }
+  ]
+}

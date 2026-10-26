@@ -1,0 +1,294 @@
+{
+  "title": "Tokens and Representations",
+  "lessons": [
+    {
+      "title": "Tokenizers and Vocabulary",
+      "status": "generated",
+      "objectives": [
+        "Explain why byte, character, word and subword tokenization create different model inputs and costs",
+        "Trace BPE merges and distinguish token IDs, UTF-8 bytes and character boundaries",
+        "Evaluate domain-specific vocabulary shifts and offset reconstruction failures"
+      ],
+      "hook": "A language model never receives the string you typed as a sequence of meaningful English words. It receives integer IDs selected by a tokenizer. A seemingly harmless tokenizer change can alter context length, retrieval chunk boundaries, multilingual performance, and the behavior of everything trained to consume those IDs. We will construct the mapping rather than treating it as magic.",
+      "explanation": [
+        "A tokenizer establishes a deterministic interface from text to a sequence of discrete symbols. A model commonly consumes token IDs x_1 through x_T rather than raw Unicode text. This interface is not semantically neutral: the representation determines which recurring fragments get short descriptions, how many positions are consumed in the attention context, and how an input can be reconstructed. A word-level vocabulary handles frequent words compactly but suffers badly from unseen words; character units avoid that particular out-of-vocabulary problem while making sequences long. UTF-8 byte tokens can represent any encoded text without an unknown-symbol fallback, at the expense of initially longer sequences. Subword vocabularies seek a middle ground by assigning tokens to frequent fragments, punctuation patterns, and even spaces. A model using subwords may represent common English words as one token, uncommon names as several, and non-English scripts with surprising segmentation. A token is not necessarily a character, syllable, or word.",
+        "Byte-pair encoding, or BPE, learns recurring adjacent pairs from a corpus. Consider a toy corpus in which the strings low and lower appear repeatedly. Begin with a specified base alphabet, including an end-of-word marker if the chosen variant uses one. Count adjacent symbol-pair occurrences weighted by training word frequencies, select the most frequent pair, replace it consistently, then recount. A possible first merge is l followed by o into lo, and a later one lo followed by w into low. This description is intentionally specific to a toy BPE variant. Modern production tokenizers differ in their pretokenization rules, byte mappings, reserved token handling, merge ordering, Unicode normalization, and tie-breaking. It would be incorrect to infer a deployed tokenizer’s token count from an English-language rule of thumb.",
+        "A tokenizer must specify both encoding and decoding conventions. The token integer 42 has no intrinsic meaning; it identifies an entry in a particular versioned vocabulary. Moving from one vocabulary to another changes the interpretation of embedding-table rows, so swapping tokenizers under a trained model is not a harmless preprocessing tweak. Special tokens also need a protected namespace. A start token, an end-of-sequence marker, a tool boundary marker and a literal user string that merely resembles a marker must not collapse to the same control signal. In a chat system, the conversation template and its reserved tokens shape the serialized input in addition to the visible message text. Treat these as part of an immutable model contract, alongside model weights and normalization rules.",
+        "Unicode creates practical traps. A grapheme visible as one character can contain multiple Unicode code points; each code point may occupy multiple bytes in UTF-8. Combining accents, emoji variation selectors, and zero-width joiners mean a naive assumption of one visible character per code point is false. Offsets from the tokenizer might refer to byte positions or code-point indices; a browser selection or annotation may use yet another coordinate system. For example, the accented letter é can be written as the single code point U+00E9 or as e followed by combining acute U+0301. These strings look similar but have different UTF-8 bytes unless normalization is applied. When building citation spans and document extractors, store original text, the normalization policy and an explicit offset mapping. Otherwise a highlight may drift by multiple characters on multilingual documents.",
+        "Vocabulary selection is a distributional engineering decision, not simply a compression contest. If a tokenizer is trained mostly on ordinary English, medical terminology, source code, or South Asian languages may consume disproportionately many tokens. Longer segmentation increases inference positions and can change where truncation happens. Yet making a very large vocabulary has costs: the embedding and output projection parameters grow with vocabulary size, while rare tokens may have inadequate training data. One useful measurement is tokens per input byte by language and domain, measured on a representative, consented evaluation corpus. A second is whether exact text can be reconstructed after encode/decode. A third is how stable important entity boundaries are under tokenization, even though model quality cannot be inferred from token compression alone.",
+        "In production, persist the tokenizer version with all prepared training and embedding datasets. A change in Unicode normalization, pretokenizer regex, BPE merge table, or special-token policy can invalidate cached encoded documents. Never conflate word counts with billable token counts: every provider has its own tokenizer and message serialization overhead. Test adversarial strings including mixed scripts, control-like text, whitespace, long numbers, mathematical notation, emoji sequences, and unusual file paths. Before a model deployment, check both segmentation statistics and application-level behavior on those cases. Tokenization is the first component of the model’s input semantics, and bugs here can masquerade as retrieval, prompting, or context-window failures.",
+        {
+          "type": "code",
+          "text": "from collections import Counter\n\ndef learn_bpe(words, merges=3):\n    corpus = [(tuple(word), count) for word, count in words.items()]\n    rules = []\n    for _ in range(merges):\n        counts = Counter()\n        for symbols, freq in corpus:\n            for pair in zip(symbols, symbols[1:]):\n                counts[pair] += freq\n        if not counts:\n            break\n        pair = sorted(counts, key=lambda p: (-counts[p], p))[0]\n        rules.append(pair)\n        updated = []\n        for symbols, freq in corpus:\n            out = []; i = 0\n            while i < len(symbols):\n                if i+1 < len(symbols) and (symbols[i], symbols[i+1]) == pair:\n                    out.append(symbols[i] + symbols[i+1]); i += 2\n                else:\n                    out.append(symbols[i]); i += 1\n            updated.append((tuple(out), freq))\n        corpus = updated\n    return rules, corpus\n\nrules, corpus = learn_bpe({'low': 5, 'lower': 2}, 2)\nassert rules[0] == ('l', 'o')\nassert rules[1] == ('lo', 'w')\nassert corpus[0][0][0] == 'low'\nprint(rules, corpus)"
+        }
+      ],
+      "examples": [
+        {
+          "title": "Manual BPE merge counts",
+          "walkthrough": "Take frequencies low: five and lower: two, and initially split each word into code-point characters. Pair l-o appears seven times, o-w appears seven times, w-e appears twice, and e-r appears twice. Because the two top counts tie, our demonstration code deliberately breaks ties alphabetically, selecting (l,o) first. After replacement the sequences are (lo,w) and (lo,w,e,r), so the pair (lo,w) occurs seven times. Merge this next to obtain the symbol low. Notice what is *not* implied: lower has not necessarily become one token; its remaining e and r still require additional merges. This exercise proves the training counts under the declared toy algorithm only. Different pretokenization or tie-breaking can produce different merge tables even for the same text."
+        },
+        {
+          "title": "Unicode offsets in multilingual highlighting",
+          "walkthrough": "Compare s1 as café using precomposed é with s2 as cafe followed by U+0301 combining acute. The rendered words may be visually identical. Yet a UTF-8 encoded representation of the accented part has different byte boundaries, and a character-count offset need not equal a byte-count offset. Suppose a citation system stores the start of the final visible letter as byte index three and later interprets that number as a Unicode code-point offset into normalized text. Some examples seem to work until mixed scripts or emoji precede the span. The safe solution is to record original bytes, normalized text, and a checked mapping of source offsets to display offsets. A model answering a question about the document cannot repair a corrupted highlight mapping."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Text becomes IDs",
+          "narration": "The tokenizer segments text into symbols and assigns each symbol a vocabulary ID.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Raw text: lower",
+              "Segments: low | e | r",
+              "Lookup IDs",
+              "Embedding rows"
+            ]
+          }
+        },
+        {
+          "title": "Two BPE merges",
+          "narration": "Count adjacent pairs using word frequencies, merge the first pair, and repeat with the updated corpus.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "l o w",
+              "lo w",
+              "low"
+            ]
+          }
+        },
+        {
+          "title": "Unicode is not one-to-one",
+          "narration": "One visible accented letter can have more than one code point or byte sequence.",
+          "visual": {
+            "type": "tokens",
+            "items": [
+              "é",
+              "e + ◌́",
+              "UTF-8 bytes",
+              "Explicit offset map"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Train and test a toy subword vocabulary",
+        "instructions": "Implement the BPE toy algorithm shown above without importing a tokenization library. Confirm the exact first two merges for low:5 and lower:2. Then add lowest:3 and rerun; write down the new pair counts rather than assuming the merge order remains stable. Check encode/decode reconstruction by concatenating learned symbols for every word. Finally inspect UTF-8 byte lengths of a precomposed accented string and a decomposed equivalent, and explain why raw byte offsets cannot be silently reused after Unicode normalization.",
+        "success": "The pair count assertions are reproducible and every test word reconstructs to its input string."
+      },
+      "pitfalls": [
+        "A displayed character can contain multiple code points, and code points can span multiple UTF-8 bytes.",
+        "BPE training pair frequencies are corpus-weighted and depend on declared pretokenization and tie-breaking.",
+        "Vocabulary IDs cannot be reassigned under an existing embedding matrix without retraining or an explicit migration."
+      ],
+      "questions": [
+        {
+          "prompt": "In the toy corpus low:5 and lower:2, how often does the pair l-o occur initially?",
+          "choices": [
+            "Five times",
+            "Seven times",
+            "Two times",
+            "Nine times"
+          ],
+          "answer": 1,
+          "reason": "Both words begin with l-o, so their frequency weights add: 5+2=7."
+        },
+        {
+          "prompt": "Which change is most likely to invalidate cached token IDs for a pretrained model?",
+          "choices": [
+            "Replacing a logging statement outside the model",
+            "Reducing only the evaluation batch size",
+            "Changing the tokenizer vocabulary while retaining the embedding table",
+            "Reordering plots in an evaluation dashboard"
+          ],
+          "answer": 2,
+          "reason": "Token IDs index learned embedding rows. A vocabulary reassignment changes their semantic meaning."
+        },
+        {
+          "prompt": "What is the safest way to transfer citation highlights from normalized text to an original document?",
+          "choices": [
+            "Assume every visible glyph occupies one byte",
+            "Use the raw token count as the display offset",
+            "Discard offsets and search for a matching phrase",
+            "Maintain a verified mapping between normalized and original offsets"
+          ],
+          "answer": 3,
+          "reason": "The mapping handles normalization, code-point and byte-position differences."
+        },
+        {
+          "prompt": "Why not always maximize the vocabulary size to reduce token count?",
+          "choices": [
+            "Large output and embedding matrices add parameters and rare symbols may lack training data",
+            "Bytes become invalid if vocabulary grows",
+            "A vocabulary can contain only English words",
+            "Larger vocabularies always increase attention sequence length"
+          ],
+          "answer": 0,
+          "reason": "Vocabulary size affects embedding/output dimensions and learning frequency independently of sequence compression."
+        }
+      ],
+      "resources": [
+        {
+          "title": "SentencePiece: A simple and language independent subword tokenizer",
+          "url": "https://arxiv.org/abs/1808.06226"
+        },
+        {
+          "title": "Neural Machine Translation of Rare Words with Subword Units",
+          "url": "https://arxiv.org/abs/1508.07909"
+        }
+      ],
+      "challenge": "Build two versions of this toy tokenizer with different pretokenization policies and find a string on which token counts differ. Document reconstruction behavior, unknown-symbol handling and how many positions each method consumes. Then design a test plan for tokenization of code, Hindi text and mixed-script documents, specifying the offset invariants you would demand before allowing citation highlighting.",
+      "evidence_note": "Suggested primary reading: SentencePiece: A simple and language independent subword tokenizer, Neural Machine Translation of Rare Words with Subword Units. URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    },
+    {
+      "title": "Embeddings and Vector Geometry",
+      "status": "generated",
+      "objectives": [
+        "Derive dot-product and cosine similarity and identify the role of vector norms",
+        "Explain why trained embedding proximity does not prove factual equivalence or causality",
+        "Implement and validate a small exact nearest-neighbor baseline with normalized vectors"
+      ],
+      "hook": "An embedding database often advertises that close vectors mean similar ideas. That statement is only a hypothesis tied to training objectives, representation choices and evaluation data. To design a trustworthy retrieval system, we need to calculate the geometry, separate semantic relevance from vector distance, and make a numerical example that can fail for the right reasons.",
+      "explanation": [
+        "A learned embedding associates an input unit with a vector in R^d, where d is the chosen representation dimension. In a token embedding layer, the model gathers a row of a learned matrix E with shape V by d for each token ID. Those rows are parameters adjusted by training; they are not dictionary definitions. A text-embedding encoder instead computes a single vector from an entire sequence, possibly by pooling internal states or using a trained projection. Two systems can both output 768-dimensional vectors and still encode incompatible geometries because dimensions acquire meaning jointly with the model objective and data. Thus an embedding index must retain its model identifier, version, preprocessing specification and any normalization policy; dimension alone is never an interoperability guarantee.",
+        "The dot product a·b is the sum over coordinates a_i b_i. Euclidean distance between a and b is the square root of the sum of squared coordinate differences. Cosine similarity divides the dot product by ||a|| ||b||, measuring alignment rather than magnitude, provided both norms are nonzero. If vectors are L2-normalized to unit length, their dot product equals cosine similarity. Moreover, squared Euclidean distance for unit vectors is ||a-b||² = 2-2(a·b); maximizing cosine is therefore equivalent to minimizing Euclidean distance on the unit sphere. This equivalence does not hold unchanged for arbitrary unnormalized vectors. Models may encode confidence or document properties in vector norms, so normalization can change ranking and must be an explicit, validated decision.",
+        "For a worked example take query q=(1,1), candidate A=(2,0), and candidate B=(0.8,0.8). Dot products are q·A=2 and q·B=1.6, so raw dot-product retrieval prefers A. Norms give ||q||=sqrt(2), ||A||=2, ||B||=sqrt(1.28), so cosine(q,A)=1/sqrt(2), approximately 0.7071, while cosine(q,B)=1. Cosine retrieval prefers B because it aligns perfectly with the query direction. Neither answer can be declared the relevant one without a task-specific relevance judgment. When you implement retrieval, label the distance convention used by the index and verify that the client, index builder and evaluation code apply the same convention.",
+        "Vector search is an approximation of a semantic matching task, not semantic truth. An encoder optimized to make paraphrases close might be weak on numerical consistency, legal negation, or rare product codes. Queries such as the policy permits access and the policy denies access may share most surface words while expressing opposite requirements. A top similarity score does not demonstrate that a cited document entails the generated answer. Retrieval evaluation should measure recall at k, mean reciprocal rank, or nDCG against independently labeled query-document judgments, then test how those metrics change across domains, languages and document age. Grounded answer evaluation is a separate downstream requirement because a generator may still hallucinate after good retrieval.",
+        "An exact brute-force nearest-neighbor baseline is valuable before introducing an approximate index. With N vectors of dimension d, computing all query dot products costs roughly O(Nd), and storing float32 vectors needs approximately 4Nd bytes before index overhead and metadata. Approximate nearest-neighbor structures reduce query cost for large N but introduce recall-latency-memory trade-offs. First compare every approximate result against exact top-k rankings on a held-out query set; then quantify recall@k and latency under concurrency. Preserve deterministic tie-breaking for reproducibility, and decide how to handle zero vectors, NaNs, duplicates and missing embeddings. Beware of a subtle evaluation leak: if the reference exact baseline itself applies the wrong normalization rule, the approximate index can look perfect while returning the wrong ranking for the application.",
+        "Embedding quality also depends on chunking and context. If a policy paragraph is split in the middle of a negation exception, its vector may omit the condition needed to answer accurately. If chunks are so large that unrelated topics are mixed, a single pooled embedding can obscure a narrow fact. Chunk overlap can protect continuity but creates duplicates and amplifies retrieval of repeated boilerplate. A robust RAG system stores source IDs and character offsets with each chunk, deduplicates near-identical hits, and can reconstruct the cited passage. A knowledge graph can supplement vector search by encoding entities, temporal validity and explicit relationships; it does not magically eliminate embedding errors. The engineering question is whether your measured retrieval failures are due to representation, segmentation, indexing or the downstream answerer.",
+        {
+          "type": "code",
+          "text": "import math\n\ndef dot(a, b):\n    assert len(a) == len(b)\n    return sum(x*y for x, y in zip(a,b))\n\ndef cosine(a, b):\n    na = math.sqrt(dot(a,a)); nb = math.sqrt(dot(b,b))\n    if na == 0 or nb == 0:\n        raise ValueError('cosine undefined for zero vectors')\n    return dot(a,b)/(na*nb)\n\nq = (1., 1.)\na = (2., 0.)\nb = (.8, .8)\nassert dot(q,a) > dot(q,b)\nassert cosine(q,b) > cosine(q,a)\nassert math.isclose(cosine(q,a), 2/math.sqrt(8))\n\nitems = {'A':a, 'B':b}\nranked = sorted(items, key=lambda k: (-cosine(q, items[k]), k))\nassert ranked == ['B','A']\nprint(ranked)"
+        }
+      ],
+      "examples": [
+        {
+          "title": "Opposite rankings from dot product and cosine",
+          "walkthrough": "Begin with q=(1,1). Candidate A is (2,0) and candidate B is (0.8,0.8). The dot product favors A because 1*2+1*0=2 exceeds 1*.8+1*.8=1.6. Normalize the comparison: q has length sqrt(2); A has length 2; B has length sqrt(.8²+.8²), or sqrt(1.28). Cosine for A is 2/(2 sqrt(2))≈0.7071, but for B it is 1 because B points in exactly the query direction. Both calculations are mathematically correct, but they encode different ranking priorities. This is why a production index and query client must agree about normalization. To choose a metric for a product, compare measured relevance rather than visual intuition about vector arrows."
+        },
+        {
+          "title": "Memory and exact-search accounting",
+          "walkthrough": "Suppose you index one million documents with 768-dimensional float32 embeddings. The raw vector payload is 1,000,000 × 768 × 4 = 3,072,000,000 bytes, approximately 3.072 decimal gigabytes or 2.861 GiB. This excludes source text, metadata, HNSW links, replicas and operating-system overhead. An exact single-query dot-product scan performs on the order of 768 million multiply-add contributions. An approximate index might return a smaller shortlist faster, but you must establish its recall@10 against an exact reference under the same similarity definition. Measure both end-to-end latency and retrieval correctness; fitting vectors in RAM does not by itself guarantee query throughput under concurrent traffic."
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Two similarity definitions",
+          "narration": "Dot product reflects magnitude and alignment; cosine divides out the vector magnitudes.",
+          "visual": {
+            "type": "equation",
+            "text": "cos(a,b)=dot(a,b)/(norm(a)*norm(b))"
+          }
+        },
+        {
+          "title": "Rank reversal",
+          "narration": "Raw dot product ranks A first while cosine ranks B first in this example.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "dot A",
+                "value": 2
+              },
+              {
+                "label": "dot B",
+                "value": 1.6
+              },
+              {
+                "label": "cos A",
+                "value": 0.7071
+              },
+              {
+                "label": "cos B",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "title": "Retrieval evaluation loop",
+          "narration": "Measure exact rankings and label relevance before selecting an approximate index.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Held-out queries",
+              "Exact top-k",
+              "ANN top-k",
+              "Recall@k",
+              "Labeled relevance"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Geometry versus relevance retrieval experiment",
+        "instructions": "Implement dot product, L2 norm and cosine similarity in pure Python as shown. Verify the opposite rankings for q=(1,1), A=(2,0), B=(0.8,0.8). Add a zero vector and assert your cosine function rejects it rather than returning a fabricated score. Add a second pair of unit vectors and numerically confirm squared Euclidean distance equals 2 minus twice their dot product. Then create five fictional document vectors with two labeled relevant hits, calculate recall@2 for both ranking metrics, and discuss which metric better serves this tiny labeled task rather than asserting that cosine always wins.",
+        "success": "The example rankings, zero-norm exception, and unit-vector distance identity all behave as predicted."
+      },
+      "pitfalls": [
+        "Cosine similarity is undefined for zero-norm vectors, and silent normalization of near-zero vectors can amplify numerical noise.",
+        "Raw dot product and cosine can produce different rankings when vector magnitudes differ.",
+        "High retrieval similarity is not proof that a passage entails a factual answer or that citation offsets remain correct."
+      ],
+      "questions": [
+        {
+          "prompt": "For q=(1,1), A=(2,0), B=(0.8,0.8), which candidate has larger raw dot product?",
+          "choices": [
+            "B because it is aligned",
+            "A because its raw dot product is 2",
+            "Both give exactly 1",
+            "Neither because vectors differ in norm"
+          ],
+          "answer": 1,
+          "reason": "q·A=2 and q·B=1.6; cosine gives a different ordering."
+        },
+        {
+          "prompt": "What is the squared Euclidean distance between two unit vectors with dot product 0.5?",
+          "choices": [
+            "0.5",
+            "2",
+            "1",
+            "3"
+          ],
+          "answer": 2,
+          "reason": "For unit vectors ||a-b||²=2-2(a·b)=2-1=1."
+        },
+        {
+          "prompt": "Which scenario makes cosine similarity mathematically undefined?",
+          "choices": [
+            "The two vectors are orthogonal",
+            "The coordinates are negative",
+            "The vectors have dimension greater than two",
+            "One vector has zero magnitude"
+          ],
+          "answer": 3,
+          "reason": "The denominator contains both vector norms, and division by zero is undefined."
+        },
+        {
+          "prompt": "A nearest-neighbor system is fast, but why should it still be compared to exact search?",
+          "choices": [
+            "Approximate search can miss neighbors, so recall@k must be measured",
+            "Exact search eliminates ground-truth labeling",
+            "Approximate indexes guarantee full recall",
+            "Exact search determines causal relationships"
+          ],
+          "answer": 0,
+          "reason": "Latency alone does not measure whether approximate ranking returns the nearest candidates."
+        }
+      ],
+      "resources": [
+        {
+          "title": "Word2Vec: Efficient Estimation of Word Representations in Vector Space",
+          "url": "https://arxiv.org/abs/1301.3781"
+        },
+        {
+          "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+          "url": "https://arxiv.org/abs/1908.10084"
+        }
+      ],
+      "challenge": "Using a small set of consented policy passages, compare exact cosine and raw-dot retrieval for ten independently written queries. Record each passage source, query-relevance label, vector model ID and normalization rule. Explain every disagreement between rankings and demonstrate a negation-sensitive query where embedding proximity is insufficient without reading the actual source passage. Preserve these results as a baseline before testing any approximate search implementation.",
+      "evidence_note": "Suggested primary reading: Word2Vec: Efficient Estimation of Word Representations in Vector Space, Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks. URLs are provided as references, not proof that every claim was externally checked. All worked calculations require independent verification before publication."
+    }
+  ]
+}

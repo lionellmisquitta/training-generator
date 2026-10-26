@@ -1,0 +1,302 @@
+{
+  "title": "Enterprise Deployment",
+  "lessons": [
+    {
+      "title": "Observability and Governance",
+      "status": "generated",
+      "objectives": [
+        "Instrument an AI application with causal trace identifiers, controlled metrics and privacy-safe evidence",
+        "Define measurable service objectives, drift signals and actionable incident response thresholds",
+        "Design deployment governance that separates evaluation, operational rollback and audit authorization"
+      ],
+      "hook": "An internal question-answering agent works in staging but becomes unreliable after deployment. Logs show requests completed successfully, yet users report missing citations, long delays and occasional cross-tenant retrieval. A green HTTP status hides three distinct failures. How would an on-call engineer reconstruct what happened, protect sensitive inputs and demonstrate that the next release really fixes the problem?",
+      "explanation": [
+        "An LLM system is an application with probabilistic components, not merely a model endpoint. A useful request trace spans the user gateway, authentication policy, retrieval, reranking, prompt construction, model generation, tool calls, evidence verification and response delivery. Assign a trace_id for the full request and a span_id for each sub-operation; link events without exposing credentials or full private prompts. A retrieval response can be fast while evidence quality deteriorates, and a generation call can succeed while its claims have no supporting citations. Therefore collect service metrics such as first-token latency and errors alongside semantic quality indicators such as grounded-claim rate, abstention appropriateness and policy violations. Make quality indicators explicitly sampled: measuring only successful responses creates survivorship bias. Instrument denied and failed calls as well as completed calls. Define event schema and retention before collecting user information, and store only what the incident investigators actually need.",
+        "A service-level objective is a contract about observable user experience, not a wish. For example, specify 95th percentile time to first token under three seconds over a rolling week for a named customer tier and workload. Do not average percentiles across unrelated days or tenants and pretend the result is a global percentile; aggregate underlying distributions. A reliability budget for a 99% request-success SLO over 10,000 eligible requests allows 100 failures, but a security breach has no acceptable budget merely because the aggregate success rate remains high. Separate service success from correctness: use an evaluated sample with known reference evidence and report confidence intervals when sampling is limited. Compare new versions with the same workload slices and a stable evaluator. Record model version, retrieval index version, feature flags, prompt policy revision, schema version and tool permissions, since any of these can produce regressions. Guard against high-cardinality metrics tags; raw request IDs belong in trace storage, not time-series metric labels.",
+        "Drift needs an operational definition. Input changes might include new document formats or a shift toward languages the evaluation set barely covered. Retrieval drift might be caused by updated embedding models, chunking or stale index refresh. Outcome drift concerns ground truth observed later, such as users correcting fabricated steps. Configure alerts only when a measurable signal implies an action: high latency can trigger autoscaling or model fallback, stale evidence can trigger indexing rollback, and a cross-tenant document result should trigger immediate isolation and investigation. Build a runbook with diagnosis, containment, rollback owner, communication and recovery verification. Logs are evidence but not a substitute for approvals: a risky model or index release needs recorded evaluation, permission impact and an authorized release decision. Retention, deletion and access policies apply to telemetry itself. Governance must be proved through observable artifacts rather than a checklist signed without evidence.",
+        "Consider the multi-layered nature of failure. A sudden increase in tool-denied calls might be correctly functioning policy that prevents an attack, not a degraded service to be \"fixed\" by relaxing authorization. A model hallucination might stem from a retrieval failure, an ignored citation constraint, or an evaluator mistake. Localize by replaying a synthetic version of the failing request against recorded component versions, not by replaying real secrets. Keep a golden canary set with known expected citations and refusal behavior. Evaluate each candidate under load and on adversarial cases before production rollout. Record a rollback criterion in advance: if citation coverage falls below the release floor in a sufficiently representative sample or any confirmed unauthorized document crosses the boundary, pause rollout regardless of cost or throughput improvements. Finally, record uncertainty: a few dozen samples can expose catastrophic bugs but cannot establish rare-event safety to high confidence."
+      ],
+      "examples": [
+        {
+          "title": "Trace reconstruction across stages",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "A request has a gateway event at 0 ms, retrieval starts at 15 ms and ends at 65 ms, generation begins at 70 ms, first token at 290 ms, and completes at 980 ms. Its request latency is 980 ms; time to first token measured from gateway arrival is 290 ms; retrieval took 50 ms. Counting overlapping durations as additive can overstate critical path. In a case where retrieval returned a stale index version but generation finished with HTTP 200, the incident still fails the evidence-quality gate. The following small executable ledger groups spans by request, computes durations and asserts that a model success cannot erase a policy failure. The trace carries synthetic identifiers only."
+            },
+            {
+              "type": "code",
+              "text": "events = [\n    ('req-7', 'gateway', 0, 980, True),\n    ('req-7', 'retrieval', 15, 65, True),\n    ('req-7', 'first_token', 290, 290, True),\n    ('req-7', 'generation', 70, 980, True),\n]\nspan = {stage: (start, end) for _, stage, start, end, _ in events}\nassert span['retrieval'][1] - span['retrieval'][0] == 50\nassert span['first_token'][0] - span['gateway'][0] == 290\nassert span['gateway'][1] - span['gateway'][0] == 980\npolicy_ok = False\nmodel_http_ok = True\nrequest_acceptable = policy_ok and model_http_ok\nassert request_acceptable is False\nprint('trace durations and security gate PASS')"
+            }
+          ]
+        },
+        {
+          "title": "Budget and quality guardrails",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "Suppose 10,000 eligible requests were evaluated for availability and 99.2% succeeded. There were 80 failures: a 99% availability objective allows 100 failures, leaving a budget of 20. Separately, a random manually scored set of 200 responses has 182 grounded answers, or 91% observed grounding. This does not mean the availability objective is satisfied for citation quality; the measures answer different questions and have different sampling uncertainty. A report should state sampling method, definitions and whether permission-sensitive failures were excluded or separately gated. If one unauthorized exposure is discovered, contain and investigate immediately; do not use the remaining error budget as justification for continuing the rollout."
+            }
+          ]
+        }
+      ],
+      "scenes": [
+        {
+          "title": "Spans are not just logs",
+          "narration": "Follow one request across authorized retrieval, generation and verification.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Gateway + auth",
+              "Retrieve / index version",
+              "Generate / model version",
+              "Verify claims",
+              "Respond / trace ID"
+            ]
+          }
+        },
+        {
+          "title": "Separate SLO types",
+          "narration": "A healthy transport path does not establish correct evidence.",
+          "visual": {
+            "type": "bars",
+            "items": [
+              {
+                "label": "HTTP success",
+                "value": 99.2
+              },
+              {
+                "label": "Grounded sample",
+                "value": 91
+              }
+            ]
+          }
+        },
+        {
+          "title": "Safety is a veto",
+          "narration": "A confirmed unauthorized source access blocks release regardless of latency.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Detection",
+              "Containment + rollback",
+              "Evidence review",
+              "Authorized restart"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Design a privacy-safe trace and release gate",
+        "instructions": "Using only synthetic requests, emit a trace_id and per-span timings for gateway, retrieval, tool authorization and generation. Simulate a fast but unauthorized retrieval and a slow but correctly grounded response. Define three separate release conditions for latency, evidence and permissions, then test that the unauthorized response fails despite a 200 response code. Include a rollback runbook.",
+        "success": "A reviewer can trace root cause without seeing secrets, reproduce separate latency and grounding metrics, and observe a denied release when policy is violated."
+      },
+      "pitfalls": [
+        "Treating HTTP 200 as a correctness signal",
+        "Logging raw prompts or secrets into globally accessible telemetry",
+        "Averaging percentiles instead of recomputing on the combined observations",
+        "Using error budgets to excuse privacy breaches",
+        "Ignoring index and prompt versions when investigating model drift"
+      ],
+      "questions": [
+        {
+          "prompt": "A retrieval agent responds in 200 ms but cites a document from another tenant. What is the release decision?",
+          "choices": [
+            "Block release for the permission violation",
+            "Accept because latency is below target",
+            "Sample more before enforcing isolation",
+            "Count it only as a throughput issue"
+          ],
+          "answer": 0,
+          "reason": "Authorization is a hard safety constraint, independent of latency and aggregate availability."
+        },
+        {
+          "prompt": "Why should request IDs normally be absent from time-series metric labels?",
+          "choices": [
+            "They improve privacy if encrypted at rest",
+            "Their cardinality can overwhelm metrics storage",
+            "They eliminate the need for tracing spans",
+            "They make percentiles invalid by definition"
+          ],
+          "answer": 1,
+          "reason": "Unique IDs create a label per request and belong in traces, not bounded-cardinality metric dimensions."
+        },
+        {
+          "prompt": "Which two measurements require separate definitions?",
+          "choices": [
+            "HTTP status and gateway status",
+            "Token count and document length",
+            "Availability and answer groundedness",
+            "Request duration and wall-clock time"
+          ],
+          "answer": 2,
+          "reason": "Service availability cannot stand in for the factual support of generated claims."
+        }
+      ],
+      "resources": [
+        {
+          "title": "OpenTelemetry Tracing specification",
+          "url": "https://opentelemetry.io/docs/specs/otel/trace/"
+        },
+        {
+          "title": "NIST AI Risk Management Framework",
+          "url": "https://www.nist.gov/itl/ai-risk-management-framework"
+        },
+        {
+          "title": "Google SRE Workbook - SLOs",
+          "url": "https://sre.google/workbook/implementing-slos/"
+        }
+      ],
+      "evidence_note": "Primary specification and framework links identify the tracing, SLO and governance concepts; example thresholds are instructional design assumptions, not universal industry standards. Online links have not been live checked in this execution.",
+      "challenge": "Prepare a production readiness memo for a multi-tenant assistant. Define its request schema, evidence-quality sample, SLO window, canary policies and escalation owner. Include a counterexample where availability rises as groundedness falls, and demonstrate the rollback logic on synthetic traces. Explain which safeguards cannot be inferred from aggregate numbers alone."
+    },
+    {
+      "title": "Capstone: Application Impact Analyst",
+      "status": "generated",
+      "objectives": [
+        "Construct a source-grounded application-impact analysis from a bounded change request",
+        "Trace requirements through APIs, data contracts, code, tests and release evidence while distinguishing observed from proposed behavior",
+        "Demonstrate a reproducible adversarial change-impact report with measurable coverage and explicit unknowns"
+      ],
+      "hook": "A finance stakeholder requests: \"When a purchase order is canceled, prevent invoice creation and notify the requestor.\" The application is twenty years old, its documentation is incomplete, and developers warn that the change might affect reconciliation. You are not being asked to confidently guess a patch. You must show which code, database objects, APIs, jobs and tests could be affected—and how certain each claim is.",
+      "explanation": [
+        "The capstone begins with evidence collection rather than solution invention. Ingest a limited repository snapshot, database schema, API contracts, change tickets, deployment configuration and executable test results as separate versioned sources. Assign every source an identifier, content hash, collection time, system of origin and access label. A repository reference is not automatically current production behavior, and a stakeholder requirement is not proof the feature already exists. Normalize observations into graph nodes such as Requirement, Screen, API, Table, Job, CodeSymbol, Test and Deployment, with typed edges such as invokes, reads, writes, validates and depends_on. Each edge stores its provenance and evidence confidence. Keep contradictory statements side by side: a runbook says cancellation stops billing, while a nightly job may still enqueue invoices. The contradiction is an investigation target, not something to conceal with the most recent sentence.",
+        "Localize the request by traversing the existing dependency graph from the cancellation entry point. A strong report should distinguish direct dependency from potential indirect impact. For example, POST /purchase-orders/{id}/cancel changes purchase_order.status; a separate invoice_queue worker may check a stale status snapshot when creating invoices. This hypothetical path is an engineering question until evidence from code and schema confirms it. Add a scope boundary at the invoice service, payment integrations and scheduled exports, and record excluded systems as assumptions. Explore outward using bounded graph traversal and evidence ranking so a generic shared utility does not imply every system is affected. Order findings by risk, source freshness and testability, not simply number of edges. Never place a guessed edge into the baseline as if a source file proved it.",
+        "Produce a bounded delivery handoff. State the desired business behavior, as-is evidence, to-be acceptance criteria, proposed data/API-contract deltas and rejected options. A cancellation should preserve accounting history; deleting invoices already issued would violate that intent. State exactly how requests handle repeated cancellation, in-flight invoice generation and authorization denial. Write negative and race-condition tests before implementation. A synchronous endpoint may need an outbox event to reliably notify a requestor without blocking the cancellation transaction. The exact mechanism depends on existing deployment constraints, so offer it as a proposal with its tradeoffs. The report should include transaction boundaries, migration concerns, rollback plan and monitoring signals. A test matrix maps each requirement to a concrete test and, when possible, to an executed result rather than claiming the absence of regression from a green unit test alone.",
+        "A useful analyst is auditable. Include a \"known unknowns\" section identifying missing stored procedures, unobserved production jobs, unverified permissions and tests blocked by unavailable environments. Confidence is attached to evidence, not to the fluency of the generated narrative. Separate source code behavior, inferred risk and proposed solution in three columns. Run a red-team review: ask whether an attacker could use a malicious ticket or README instruction to make the tool exfiltrate secrets or bypass a reviewer. Treat retrieved documents as data, restrict tool execution to a read-only sandbox during analysis and require explicit approval before changing files or publishing a handoff. Finally, prove that the analyst remains useful under partial data: suppress unsupported definitive statements and issue targeted requests for missing evidence. This is an engineering deliverable, not an autonomous authorization to deploy."
+      ],
+      "examples": [
+        {
+          "title": "Bounded impact traversal with evidence",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "Build a tiny synthetic dependency graph: a cancel API writes the purchase_order table; an invoice worker reads that table; a reconciliation job consumes invoice records. A breadth-first traversal at depth two discovers the worker but cannot yet justify a direct effect on reconciliation without following a further edge. Each edge has a source and confidence. The code below computes only reachable nodes within the bound and asserts that an unrelated payroll service is excluded. The result is a candidate impact set, not a verified change list; the real system would require source-level review of every displayed edge. Record how the evidence was obtained before deciding scope."
+            },
+            {
+              "type": "code",
+              "text": "from collections import deque\nedges = {\n    'cancel_api': [('purchase_order', 'api-contract')],\n    'purchase_order': [('invoice_worker', 'sql-read')],\n    'invoice_worker': [('invoice_record', 'worker-code')],\n    'invoice_record': [('reconciliation', 'job-config')],\n    'payroll': []\n}\ndef reach(start, depth_limit):\n    found = {start: 0}\n    queue = deque([(start, 0)])\n    while queue:\n        node, depth = queue.popleft()\n        if depth >= depth_limit: continue\n        for neighbor, source in edges.get(node, []):\n            assert source\n            if neighbor not in found:\n                found[neighbor] = depth + 1\n                queue.append((neighbor, depth + 1))\n    return found\nr = reach('cancel_api', 2)\nassert r == {'cancel_api': 0, 'purchase_order': 1, 'invoice_worker': 2}\nassert 'payroll' not in r and 'reconciliation' not in r\nprint('bounded impact traversal PASS')"
+            }
+          ]
+        },
+        {
+          "title": "Acceptance criteria as executable invariants",
+          "walkthrough": [
+            {
+              "type": "text",
+              "text": "A cancellation request must not create a new invoice once the state transition commits. A repeated cancellation should be idempotent, and the notification should be enqueued exactly once for the example model. Model just the state transition in-memory rather than pretending this proves a real database transaction. Execute the three assertions and then identify the race missing from this unit model: an invoice worker may have read an older status before cancellation committed. The production design must establish locking, version checks or a transactional boundary to close that gap, and tests must reproduce concurrent workers before shipping."
+            },
+            {
+              "type": "code",
+              "text": "state = {'status': 'OPEN', 'invoice_count': 0, 'notifications': 0}\ndef cancel_po(s):\n    if s['status'] == 'CANCELED': return s\n    s['status'] = 'CANCELED'\n    s['notifications'] += 1\n    return s\ncancel_po(state)\ncancel_po(state)\nassert state['status'] == 'CANCELED' and state['notifications'] == 1\nif state['status'] != 'CANCELED':\n    state['invoice_count'] += 1\nassert state['invoice_count'] == 0\nprint('sequential invariants PASS; race tests still required')"
+            }
+          ]
+        }
+      ],
+      "scenes": [
+        {
+          "title": "The evidence graph",
+          "narration": "Edges must carry origin and freshness, not just plausible names.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Ticket: desired behavior",
+              "API + SQL code",
+              "Worker + queue",
+              "Tests + runtime evidence"
+            ]
+          }
+        },
+        {
+          "title": "Traverse by bounded risk",
+          "narration": "Limit edges while retaining the reasons a node is included.",
+          "visual": {
+            "type": "tokens",
+            "items": [
+              "cancel API",
+              "purchase_order",
+              "invoice_worker",
+              "invoice_record"
+            ]
+          }
+        },
+        {
+          "title": "Separate fact and proposal",
+          "narration": "Use evidence levels and unknowns to stop unsupported assertions.",
+          "visual": {
+            "type": "flow",
+            "items": [
+              "Observed dependency",
+              "Inferred risk",
+              "Proposed mitigation",
+              "Verify in CI"
+            ]
+          }
+        }
+      ],
+      "lab": {
+        "title": "Build a reproducible impact handoff",
+        "instructions": "Create a small fixture repo/schema/API specification and a change request about PO cancellation. Build a typed dependency graph with at least eight nodes, provenance for all edges and one intentional contradiction. Run bounded traversal, derive three negative tests and one concurrency test, and produce a report separating observed behavior, risk and proposed changes. Include an audit trail and approval gates.",
+        "success": "Another engineer can reproduce the graph traversal, identify the contradiction, map each acceptance criterion to a test and confirm no unsupported claim was asserted as a fact."
+      },
+      "pitfalls": [
+        "Treating stakeholder requests as descriptions of existing code",
+        "Promoting inferred dependencies into observed edges",
+        "Applying graph reachability without scope or provenance",
+        "Claiming a sequential unit test proves concurrent transaction safety",
+        "Granting a read-only analysis agent deployment permissions"
+      ],
+      "questions": [
+        {
+          "prompt": "A ticket says canceled orders never generate invoices, but a worker still reads a stale queue. How should the report represent this?",
+          "choices": [
+            "Trust the ticket as intended behavior",
+            "Discard the worker observation",
+            "Mark both as equivalent evidence",
+            "Record the contradiction and test it"
+          ],
+          "answer": 3,
+          "reason": "Intended and observed behavior must remain separate until the conflict is resolved with evidence."
+        },
+        {
+          "prompt": "What is a safe interpretation of a two-hop graph result?",
+          "choices": [
+            "Every reachable node needs a code change",
+            "It is a candidate impact set to inspect",
+            "Unreachable nodes can never be affected",
+            "Graph degree is the same as failure risk"
+          ],
+          "answer": 1,
+          "reason": "Reachability proposes candidates but does not establish actual impact or authorization."
+        },
+        {
+          "prompt": "Which test is still needed after sequential cancellation passes?",
+          "choices": [
+            "An API syntax snapshot only",
+            "A test of dashboard colors",
+            "A competing invoice-worker race test",
+            "A retry without any state mutation"
+          ],
+          "answer": 2,
+          "reason": "The sequential model does not close the time-of-check/time-of-use race."
+        }
+      ],
+      "resources": [
+        {
+          "title": "OpenAPI specification",
+          "url": "https://spec.openapis.org/oas/latest.html"
+        },
+        {
+          "title": "W3C PROV-O",
+          "url": "https://www.w3.org/TR/prov-o/"
+        },
+        {
+          "title": "NIST AI Risk Management Framework",
+          "url": "https://www.nist.gov/itl/ai-risk-management-framework"
+        }
+      ],
+      "evidence_note": "The cancellation workflow, endpoint names and dependency graph are explicitly hypothetical exercises. Standards links provide schema and provenance background; no external system or source repository was inspected for this lesson.",
+      "challenge": "Build a ten-page engineering handoff for the hypothetical cancellation change. Include evidence hashes, a scoped graph, conflicting source records, three realistic failure modes, two proposed mitigations and a CI test plan with adverse scenarios. Have a separate reviewer attempt to falsify each direct-impact claim. Report unresolved questions instead of declaring the system safe to change."
+    }
+  ]
+}
