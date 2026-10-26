@@ -1,0 +1,48 @@
+name: Package Training Generator Skills
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'training-generator/**'
+      - '.github/workflows/package-skills.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Package portable Skill zips
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile
+          root = pathlib.Path('training-generator')
+          assert (root/'SKILL.md').is_file()
+          for target in ('for-chatgpt/skill.zip','for-claude/skill.zip'):
+              dest=pathlib.Path(target)
+              dest.parent.mkdir(parents=True,exist_ok=True)
+              with zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+                  for p in sorted(root.rglob('*')):
+                      if not p.is_file() or '__pycache__' in p.parts or p.suffix in ('.pyc','.pyo'):
+                          continue
+                      z.write(p,p.as_posix())
+              with zipfile.ZipFile(dest) as z:
+                  assert z.testzip() is None
+                  assert 'training-generator/SKILL.md' in z.namelist()
+                  print(target, len(z.namelist()), 'files')
+          PY
+      - name: Commit downloadable ZIPs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add for-chatgpt/skill.zip for-claude/skill.zip
+          if ! git diff --cached --quiet; then
+            git commit -m "Build one-click Training Generator installers"
+            git push
+          fi
