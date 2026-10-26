@@ -1,15 +1,23 @@
-# AI Engineering — Interactive Sample Course
+# AI Engineering — Interactive Sample
 
-**22 authored lessons · 11 modules · Offline HTML5 course player**
+**22 lessons · 11 modules · Offline browser-based learning**
 
-## Open the actual course
+## Start here
 
-**[Download / open the interactive course player](course.html)**
+**[Download interactive course (HTML)](course.html)**
 
-GitHub serves `.html` source files as downloads or code previews, not as a hosted interactive website. Download `course.html` and open it in Chrome, Edge or another modern browser to use the course offline. This is the complete interactive 22-lesson player — **not a screenshot or placeholder**.
+After downloading, open `course.html` in your browser. GitHub previews HTML as source/download, so it does not run interactively inside the GitHub file viewer.
 
-## Status and source files
+## Editable course source
 
-The player has been uploaded and verified. Its editable `course.json`, individual module JSONs, checkpoint and review files **have not yet been committed here**; those remain in the course checkpoint package.
+The folder is being populated with:
 
-The player is a **self-verified draft, not publication-approved**. Ten modules had independent review passes tied to their hashes. Module 5 was repaired after a failed independent review and needs renewed review; assessment-bias warnings and end-to-end browser QA remain outstanding.
+- `course.json` — complete 22-lesson editable course
+- `modules/m01.json` through `m11.json` — individually editable module content
+- `SOURCE_PROVENANCE.md` — extraction provenance and review limits
+
+The editable source is generated directly from the published player's embedded course JSON by the repository workflow. **It is semantically equivalent to the player's course content, but is not the original byte-for-byte checkpoint package.** Original module review SHA-256 hashes and independent-review evidence cannot be inferred from this extracted source.
+
+The original checkpoint archive and review documents are **not yet published here**. Do not represent this example as independently approved or publication ready. Module 5's independent rereview, course-wide multiple-choice quality work, and browser QA remain outstanding.
+
+[Back to Training Generator](../../README.md)
