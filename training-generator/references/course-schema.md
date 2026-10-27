@@ -15,3 +15,9 @@ A generated lesson has `title`, `status:"generated"`, `objectives` (2+ strings),
 The current player uses browser/system speech synthesis, with scene advancement on speech completion, not neural audio files, word-level alignment, timestamp cues, or downloadable TTS weights. A voice may be robotic. URL validation checks HTTPS syntax, NOT live availability or content accuracy. External resources are not bundled for offline use.
 
 Use `python scripts/merge_course.py index.json module1.json module2.json > course.json` to safely replace planned slots with generated lessons by whitespace-normalized case-insensitive title. The validator catches basic structural/depth defects; it cannot verify factual accuracy, real citations, question difficulty or educational effectiveness.
+
+## Corporate applications (optional first-class lesson field)
+
+`corporate_application: {"scenario_title":"...", "scenario":"..."}`. The scenario must contain at least 150 substantive words and demonstrate an actual quantified business decision: explicit payoff or probability assumptions, a computed outcome, a decision implication, and at least one changed assumption that flips or challenges the result. Use distinct industries/functions across lessons. The validator enforces presence/length and overlap guard, not mathematical correctness; manual/adversarial review must recalculate the result. This section renders **before** the questions in the standard player. Do not fork the player to support it.
+
+Optional subject-agnostic applied lesson: `practical_application:{"title":"Listening and Improvisation","scenario_title":"A ii–V–I in three keys","scenario":"..."}` (150+ prose words, genuine worked subject example). Legacy `corporate_application:{"scenario_title":"...","scenario":"..."}` remains readable for backwards compatibility. Neither application nor worked examples count toward explanation depth.

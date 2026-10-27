@@ -112,12 +112,18 @@ def cmd(args):
             if not target or target['status']!='review_passed':raise ValueError('Independent PASS required before approval')
             if not args.approver:raise ValueError('Human approver required')
             target['status']='approved';target['approved_by']=args.approver
+        elif args.action=='authorize-publication':
+            if not args.approver:raise ValueError('Named human publication approver required')
+            if not all(item['status']=='approved' for item in state['modules']):
+                raise ValueError('Every module must pass independent review and human approval')
+            state['publication_approved']=True
+            state['publication_approver']=args.approver
         elif args.action!='status':raise ValueError('Unknown action')
         if args.action!='status':save(statefile,state)
     state=load(root);next_module=current(state)
     print(json.dumps({'course':state['course_title'],'approved':sum(x['status']=='approved' for x in state['modules']),'total':len(state['modules']),'next':next_module,'publication_approved':state['publication_approved']},indent=2))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['init','status','submit','selfreview','review','approve']);p.add_argument('--course',required=True);p.add_argument('--index');p.add_argument('--module');p.add_argument('--report');p.add_argument('--approver');p.add_argument('--author');p.add_argument('--module-id');a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['init','status','submit','selfreview','review','approve','authorize-publication']);p.add_argument('--course',required=True);p.add_argument('--index');p.add_argument('--module');p.add_argument('--report');p.add_argument('--approver');p.add_argument('--author');p.add_argument('--module-id');a=p.parse_args()
     try:cmd(a)
     except (ValueError,FileNotFoundError,json.JSONDecodeError) as e:print(f'ERROR: {e}',file=sys.stderr);sys.exit(2)

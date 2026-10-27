@@ -29,3 +29,14 @@ For large courses, keep a master index with planned lessons; write and validate 
 - The Skill contains no local model weights or execution environment; installed Skills depend on available host tools. Keep human voice quality and multimedia upgrades as future requirements, not delivered features.
 - Treat AI-authored educational content as unverified until reviewed. Never claim compliance with a named school's official syllabus without its actual source.
 - Correctness, browser support, question quality, reference validity and teaching effectiveness require checks beyond this simple structural validator.
+
+## Optional applied practice (all disciplines)
+Use `practical_application` only when a concrete applied example materially improves learning. It takes `title`, `scenario_title`, and `scenario` (at least 150 substantive words when present). Choose a subject-appropriate title: corporate decision for executive game theory, listening/performance for jazz, drawing exercise for art, experiment or real engineering case for technical study. The deprecated `corporate_application` field is accepted only for legacy content. Never invent business payoffs for unrelated subjects. A genuinely worked application must teach the subject's practice rather than repeat the lesson's own examples.
+
+## Hard release gates (mandatory)
+- **Do not publish solely because `validate_course.py` says PASS.** Execute `scripts/release_gate.py --course PATH --phase draft` on a checkpoint directory before any draft delivery, and `--phase publish` before presenting anything as publication-ready.
+- `release_gate.py` rebuilds from canonical index/module sources; verifies hashes, checkpoint, review evidence and byte-identical player output. Any mismatch is FAIL. Do not copy walkthroughs into explanations or use a forked player.
+- Failures require fixes and a rerun, not waived warnings, self-proclaimed review, or a manual rewrite of `CONTINUE_HERE.json`.
+- For adult lessons, genuine *explanation-only* text must meet the configured depth target, not by copying worked examples, applications, labs or questions into it. Never count application prose toward explanation depth.
+- Self-review is not independent review. In particular, source verification, math correctness, semantic example originality, citation accuracy, accessibility and browser QA require evidence or explicit `not_executed` status. The script cannot establish all of these automatically.
+- For public release, require independent hash-bound passing review and human approval for every module plus genuine browser QA evidence; missing evidence blocks release.

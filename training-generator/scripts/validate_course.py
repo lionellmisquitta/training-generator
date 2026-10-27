@@ -90,6 +90,21 @@ def validate(d):
                     if len(re.findall(r'\b[\w]+\b',norm))>=8:lab_sentence_owner[norm].add(n)
             pitfalls=l.get("pitfalls",[])
             if isinstance(pitfalls,list):pitfalls_owner[tuple(str(x).strip().casefold() for x in pitfalls)].add(n)
+            ca=l.get('practical_application',l.get('corporate_application'))
+            if l.get('practical_application') is not None and l.get('corporate_application') is not None:issues.append(f'{p}: use only one application field')
+            if ca is not None:
+                if not isinstance(ca,dict) or not good(ca.get('scenario_title')) or not good(ca.get('scenario'),150):
+                    issues.append(f'{p}: practical_application needs a scenario_title and >=150 substantive words')
+                else:
+                    # Discourage content duplication, while preserving valid reuse of necessary terms.
+                    base=' '.join(textpart(x) for x in l.get('explanation',[]) if not codepart(x))
+                    base+=' '+' '.join(str(ex.get('walkthrough','')) for ex in l.get('examples',[]) if isinstance(ex,dict))
+                    ctokens=re.findall(r"\b[\w]+\b",ca['scenario'].casefold())
+                    btokens=re.findall(r"\b[\w]+\b",base.casefold())
+                    bgrams=set(tuple(btokens[i:i+10]) for i in range(max(0,len(btokens)-9)))
+                    cgrams=set(tuple(ctokens[i:i+10]) for i in range(max(0,len(ctokens)-9)))
+                    if cgrams and len(cgrams & bgrams)/len(cgrams)>.12:
+                        issues.append(f'{p}: practical application repeats existing lesson prose')
             qs=l.get('questions',[])
             if isinstance(qs,list):
                 for j,q in enumerate(qs):
@@ -152,7 +167,7 @@ def validate(d):
     warnings=[]
     sentence_owners=defaultdict(set)
     for lesson_number,lesson in original:
-        blocks=lesson.get('explanation',[])
+        blocks=list(lesson.get('explanation',[]))  # never mutate source during checks
         for example in lesson.get('examples',[]):
             w=example.get('walkthrough',[])
             blocks+=w if isinstance(w,list) else [w]
