@@ -1,23 +1,28 @@
-# Game Theory Explained — 11-module repaired course draft
+# Game Theory Explained — complete 11-module course
 
-**Status: educational draft, not approved for public course release.**
+**Curriculum: complete. GitHub sample: publicly available. Formal training-course release gate: pending.**
 
-The downloadable [course package](./Game_Theory_Explained_M01_M11_Repaired_Draft.zip) contains all 11 modules, 22 lessons, 88 questions, the offline-oriented HTML player, canonical JSON, module sources, checkpoint state, QA evidence and independent review history.
+The course contains **11 modules, 22 lessons and 88 assessment questions**. The course owner explicitly requested public availability on 27 October 2026 and authorized publication after the final typographical correction.
 
-## Verification and approval
+[Download the corrected complete course package](./Game_Theory_Explained_M01_M11_Repaired_Draft.zip)
 
-- Training Generator v2.3 draft release gate: **PASS**.
-- Numerical/structural M10–M11 audit: **110 checks pass**.
-- Modules M01–M08 are unchanged and preserve independent reviews bound to their exact content hashes.
-- Modules M09–M11 were repaired following Claude's independent review; **their previous reviews do not approve the new hashes**.
-- The publication release gate intentionally **FAILS**: fresh M09–M11 independent review, human module/course approval, and current-player browser acceptance remain outstanding.
+The ZIP includes the canonical HTML player (`course.html`), editable course JSON, module files, checkpoint state, self-reviews, independent review evidence, numerical QA and precise provenance. Unzip it locally and open the player in a supported browser.
 
-## Repairs made
+## Final editorial correction
 
-- M09: removed conflicting entrant entry-cost value 950; retained 800 consistently.
-- M10: added runnable fairness/logit and population-dynamics Python checks; replaced a dominance/penalty example with a genuine compatibility-bridge coordination case (threshold from 4/7 to 0.40).
-- M11: added executable mixed-strategy and supplier-contract checks and explicitly identified deliberate reuse of Module 3 inspection-game concepts.
+Claude's 27 October independent review found only one remaining low-severity typo in M09 Lesson 2: **“Without an advance commitment, It expects”** was corrected to **“…it expects”**. No other content was changed in that module.
 
-See `README.md`, `CLAUDE_REVIEW_HANDOFF.md`, `qa/REPAIR_QA.json` and `evidence/` inside the ZIP for reconstruction and verification instructions.
+- Claude independently passed the *pre-correction* M09 file SHA-256 `ea0ca6db586c0393245d9e8e3b5b0ade66646e69644950028cead0ead7f77519`.
+- Corrected M09 SHA-256: `40fd9af3bc1657b587b92e1a09704fa2920c924996a0abc8862f673415799f9a`.
+- Claude also passed M10 and M11 at their **unchanged** hashes. Reviews for M01–M08 are unchanged and remain valid.
 
-The archive is a **sample draft for review**, not a certified or human-approved published educational edition.
+## Verification and release status
+
+- **PASS:** content structural validator, module numerical checks, and v2.3 **draft** release gate.
+- **PASS (partial scope):** seven headless Chromium interaction checks against the exact current HTML player hash.
+- **Human approval:** course owner requested publication in chat; 10 unchanged reviewed modules are recorded as approved in the checkpoint.
+- **Outstanding:** a new independent review bound to the corrected M09 hash, full browser acceptance (including local-file execution), and final formal publication authorization through the checkpoint engine.
+
+The publication release gate currently returns **FAIL**. The source package is made available here as the most current corrected sample but **is not labelled an independently certified or fully release-gated educational edition**. Historical review artifacts have not been altered to manufacture approval.
+
+See `README.md`, `PUBLICATION_READINESS.json`, `PUBLICATION_AUTHORIZATION.json`, and `CLAUDE_REVIEW_HANDOFF.md` inside the ZIP for exact evidence and the remaining gate.
