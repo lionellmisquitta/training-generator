@@ -1,6 +1,6 @@
 # Game Theory Explained — complete 11-module course
 
-**Curriculum: complete. GitHub sample: publicly available. Formal training-course release gate: pending.**
+**Curriculum: complete. Owner-approved for public distribution as a sample. Formal training-course release gate: not passed.**
 
 The course contains **11 modules, 22 lessons and 88 assessment questions**. The course owner explicitly requested public availability on 27 October 2026 and authorized publication after the final typographical correction.
 
