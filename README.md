@@ -28,4 +28,14 @@ Each installer folder provides a single `skill.zip` plus short steps. ZIPs are g
 - [Checkpoint orchestration](training-generator/references/orchestration.md)
 - [Knowledge baseline](knowledge-graph/)
 
-**Quality disclosure:** AI-generated lessons must be checked for accuracy, pedagogy, correct assessment keys and browser behavior. Self-review is not independent approval. Automatic remote Claude reviews, neural audio and SCORM export are not bundled. 
+**Quality disclosure:** AI-generated lessons must be checked for accuracy, pedagogy, correct assessment keys and browser behavior. Self-review is not independent approval. Automatic remote Claude reviews, neural audio and SCORM export are not bundled.
+
+---
+
+## Support this project
+
+If Training Generator is useful to you, consider supporting its continued development.
+
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor_on_GitHub-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/lionellmisquitta)
+
+*GitHub Sponsors availability depends on approval and activation of the maintainer's sponsorship profile.*
