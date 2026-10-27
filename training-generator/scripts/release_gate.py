@@ -46,9 +46,9 @@ def main(root,phase,minwords):
                 r=json.loads((root/path).read_text())
                 if r.get('module_sha256')!=m['sha256'] or r.get('review_type')!='self_adversarial' or r.get('overall')!='pass':raise ValueError('invalid self-review binding')
                 checks=r.get('checks',[])
-                required={'mathematics','examples','assessment','application','sources','duplication'}
+                required={'mathematics','examples','assessment','application','sources','duplication','semantic_originality','objective_coverage'}
                 labels={str(c.get('id',c.get('name',''))).casefold() for c in checks if c.get('result')=='pass' and len(str(c.get('evidence','')))>25}
-                if not required.issubset(labels):raise ValueError('weak self-review: need six substantive checks with evidence: '+','.join(sorted(required-labels)))
+                if not required.issubset(labels):raise ValueError('weak self-review: need eight substantive checks with evidence: '+','.join(sorted(required-labels)))
             except (TypeError,OSError,ValueError) as e:errors.append(f'{m["id"]}: {e}')
         if status in ('review_passed','approved'):
             try:
@@ -108,7 +108,18 @@ def main(root,phase,minwords):
                             # Sequence a,b,c,d is not a valid balanced key pattern.
                             if len(q)>=4 and [x['answer'] for x in q[:4]] in ([0,1,2,3],[3,2,1,0]):errors.append(f'{title}: predictable key sequence')
                         app=l.get('practical_application',l.get('corporate_application'))
-                        if app and len(str(app.get('scenario','')).split())<150:errors.append(f'{title}: application under 150 words')
+                        if l.get('practical_application') and l.get('corporate_application'):
+                            errors.append(f'{title}: both deprecated and current application fields are present')
+                        if app and len(str(app.get('scenario','')).split())<150:
+                            errors.append(f'{title}: application under 150 words')
+                        if app:
+                            import difflib
+                            raw=' '.join(textpart(x) for ex in l.get('examples',[]) for x in (ex.get('walkthrough',[]) if isinstance(ex.get('walkthrough'),list) else [ex.get('walkthrough','')]) if not codepart(x))
+                            # Word-order similarities are an automated heuristic, not proof of novelty.
+                            ratio=difflib.SequenceMatcher(None, norm(app.get('scenario','')), norm(raw)).ratio()
+                            if ratio>.67: errors.append(f'{title}: application closely duplicates worked examples ({ratio:.2f})')
+                        if any('example' in str(o).casefold() for o in l.get('objectives',[])) and not l.get('examples'):
+                            errors.append(f'{title}: example objective unfulfilled')
                 if len(course.get('modules',[])) and len([x for x in course['modules'] for l in x['lessons'] if l.get('status')!='planned'])>0:
                     allq=[q for m in course['modules'] for l in m['lessons'] if l.get('status')!='planned' for q in l.get('questions',[])]
                     if allq:

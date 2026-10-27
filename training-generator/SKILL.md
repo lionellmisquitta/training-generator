@@ -40,3 +40,13 @@ Use `practical_application` only when a concrete applied example materially impr
 - For adult lessons, genuine *explanation-only* text must meet the configured depth target, not by copying worked examples, applications, labs or questions into it. Never count application prose toward explanation depth.
 - Self-review is not independent review. In particular, source verification, math correctness, semantic example originality, citation accuracy, accessibility and browser QA require evidence or explicit `not_executed` status. The script cannot establish all of these automatically.
 - For public release, require independent hash-bound passing review and human approval for every module plus genuine browser QA evidence; missing evidence blocks release.
+
+## Regression defenses against superficially correct lessons
+- The application must solve a **different strategic setup**, not change labels, currencies, sample size, or payoff numbers in the worked example, code assertion, lab or quiz. Record game-form and distinct-decision evidence in the `semantic_originality` self-review check. Similarity scripts are only screening; a human or independent model must audit strategic structure.
+- Explicitly map every learner objective to an actual derivation, worked example, lab or assessment and explain the mapping under `objective_coverage`. Do not promise a calculation and deliver an anecdote.
+- Compare lab numbers against code assertions and quiz numbers, and verify conceptual novelty beyond changing parameters. Report failures and do not claim self-verified.
+- Check all equations with independent symbolic/numeric computations; never use an unverified intermediate derivation even if the final result matches.
+- Before packaging, run `python scripts/test_release_gate.py`; a passed unit test is necessary but not sufficient for course publication. Never bypass failed `release_gate.py` by exporting a parallel player.
+- Use canonical `practical_application` for new courses; read deprecated `corporate_application` only for old courses. Do not write both. The default player MUST render the same data accepted by the validator.
+- Never claim that public reference links are accessible or free without a live check. Keep journal access labels neutral.
+- If historical checkpoints are absent, preserve exact source hashes and the missing-evidence disclosure; do not manufacture self-review or approval. Release remains blocked until the valid provenance is genuinely recovered.
