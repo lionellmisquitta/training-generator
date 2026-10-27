@@ -2,6 +2,8 @@
 
 **22 lessons · 11 modules · Offline browser-based learning**
 
+**Owner-approved for public distribution as a sample (27 October 2026).** Independent review and formal publication-gate completion remain unverified; this is not a claim of completed technical QA.
+
 ## Start here
 
 **[Download interactive course (HTML)](course.html)**
